@@ -1,16 +1,21 @@
-// The canvas world: sprite-sheet rendering, a camera over the scrollable map,
-// click/drag/right-click input, player movement and the little effects
-// (click markers, XP drops, level-up bursts, minimap).
+// The 3D world: low-poly terrain and models (three.js), a camera that orbits
+// the player, click-to-walk with raycast picking, and a 2D HUD canvas on top
+// (hover text, click markers, XP drops, level-up sparks, minimap + compass).
 // Talks to React only through WorldCallbacks.
-import { ATLAS } from "./atlas";
+import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, ROWS, START, STATIONS, T, blocked, cell, findPath, isPath, isWater, stationAt, type Pt, type Station } from "./map";
+import { COLS, ROWS, START, STATIONS, blocked, cell, findPath, isWater, stationAt, type Pt, type Station } from "./map";
+import { CHIMNEYS, hash, makeBridge, makeCharacter, makeStation, mat, natureGeo, type CharacterRig } from "./models";
 
 export { STATIONS, habitsAtStation, type Station } from "./map";
 
+/** Logical size of the view; menus are positioned in these coordinates. */
+export const VIEW_W = 640,
+  VIEW_H = 448;
+
 export interface WorldCallbacks {
   chat(text: string, cls?: string): void;
-  /** Player arrived at (or clicked while standing at) a station. pos is in canvas pixels. */
+  /** Player arrived at (or clicked while standing at) a station. pos is in view coordinates. */
   openStation(s: Station, pos: { x: number; y: number }): void;
   /** Right-click on open ground. */
   openGroundMenu(tile: Pt, pos: { x: number; y: number }): void;
@@ -21,258 +26,301 @@ export interface WorldCallbacks {
 
 interface Drop { text: string; ico: string; t: number; neg: boolean }
 interface Spark { x: number; y: number; vx: number; vy: number; t: number; c: string }
-interface Marker { x: number; y: number; t: number; red: boolean }
+interface Marker { x: number; z: number; t: number; red: boolean }
 
-const S = 2; // art scale
-const MM = { r: 54, scale: 3, pad: 8 }; // minimap: radius, px per tile, margin
+const FOG = "#6f7f86";
+const MM = { r: 56, scale: 3, pad: 10 };
+const WATER_Y = -0.12;
 
-function hash(x: number, y: number) {
-  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-  return n - Math.floor(n);
+// ---------------- terrain heights ----------------
+const footprintOf = (x: number, y: number) => stationAt(x, y);
+function baseHeight(i: number, j: number) {
+  let h = 0.16 * Math.sin(i * 0.33) + 0.14 * Math.cos(j * 0.41) + 0.08 * Math.sin((i + j) * 0.7) + 0.06 * Math.cos(i * 1.3 - j * 0.9);
+  const d = Math.min(i, j, COLS - i, ROWS - j);
+  if (d < 3) h += (3 - d) * 0.32 * (0.6 + 0.4 * hash(i, j));
+  return h + 0.42; // keep dry land above the water plane
+}
+const stationBase = new Map<string, number>();
+STATIONS.forEach((s) => stationBase.set(s.id, 0.42 + (baseHeight(s.x + s.w / 2, s.y + s.h / 2) - 0.42) * 0.5));
+const corner: number[][] = [];
+for (let j = 0; j <= ROWS; j++) {
+  corner.push([]);
+  for (let i = 0; i <= COLS; i++) {
+    const tiles = [cell(i - 1, j - 1), cell(i, j - 1), cell(i - 1, j), cell(i, j)];
+    const wet = tiles.filter(isWater).length;
+    let h = baseHeight(i, j);
+    if (tiles.some((c) => c === "=" || c === "h" || c === "v")) h = 0.42 + (h - 0.42) * 0.4;
+    const st = [footprintOf(i - 1, j - 1), footprintOf(i, j - 1), footprintOf(i - 1, j), footprintOf(i, j)].find(Boolean);
+    if (st) h = stationBase.get(st.id)!;
+    if (wet === 4) h = -0.55;
+    else if (wet > 0) h = -0.22;
+    corner[j].push(h);
+  }
+}
+function groundAt(x: number, z: number) {
+  const i = Math.max(0, Math.min(COLS - 1e-6, x)),
+    j = Math.max(0, Math.min(ROWS - 1e-6, z));
+  const i0 = Math.floor(i),
+    j0 = Math.floor(j),
+    fx = i - i0,
+    fz = j - j0;
+  const a = corner[j0][i0],
+    b = corner[j0][i0 + 1],
+    c = corner[j0 + 1][i0],
+    d = corner[j0 + 1][i0 + 1];
+  return a * (1 - fx) * (1 - fz) + b * fx * (1 - fz) + c * (1 - fx) * fz + d * fx * fz;
+}
+function standY(x: number, z: number) {
+  const c = cell(Math.floor(x), Math.floor(z));
+  if (c === "h" || c === "v") return 0.15;
+  return Math.max(groundAt(x, z), WATER_Y + 0.02);
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((res, rej) => {
-    const im = new Image();
-    im.onload = () => res(im);
-    im.onerror = rej;
-    im.src = src;
+function tileColor(x: number, y: number): THREE.Color {
+  const c = cell(x, y);
+  const nearWater = [cell(x + 1, y), cell(x - 1, y), cell(x, y + 1), cell(x, y - 1)].some(isWater);
+  const st = stationAt(x, y);
+  let base: string;
+  if (isWater(c)) base = "#4b4a36";
+  else if (c === "=") base = "#86694a";
+  else if (st?.id === "health") base = "#7a6143";
+  else if (st) base = "#5c6a34";
+  else if (nearWater) base = "#9c8a5c";
+  else if (c === "T" || c === "P") base = "#475a2b";
+  else base = "#566d31";
+  const col = new THREE.Color(base);
+  const v = (hash(x * 3.1, y * 1.7) - 0.5) * 0.08;
+  col.offsetHSL((hash(x, y * 2.3) - 0.5) * 0.02, 0, v);
+  return col;
+}
+
+function buildTerrain(): THREE.Mesh {
+  const pos: number[] = [],
+    col: number[] = [];
+  const push = (x: number, z: number, c: THREE.Color) => {
+    pos.push(x, corner[z][x], z);
+    col.push(c.r, c.g, c.b);
+  };
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      const base = tileColor(x, y);
+      const c1 = base.clone().offsetHSL(0, 0, (hash(x + 0.5, y) - 0.5) * 0.05);
+      const c2 = base.clone().offsetHSL(0, 0, (hash(x, y + 0.5) - 0.5) * 0.05);
+      if ((x + y) % 2) {
+        push(x, y, c1); push(x, y + 1, c1); push(x + 1, y, c1);
+        push(x + 1, y, c2); push(x, y + 1, c2); push(x + 1, y + 1, c2);
+      } else {
+        push(x, y, c1); push(x, y + 1, c1); push(x + 1, y + 1, c1);
+        push(x, y, c2); push(x + 1, y + 1, c2); push(x + 1, y, c2);
+      }
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  m.name = "terrain";
+  return m;
+}
+
+function buildWater(): THREE.Mesh {
+  const g = new THREE.PlaneGeometry(COLS, ROWS, COLS, ROWS).toNonIndexed();
+  g.rotateX(-Math.PI / 2);
+  g.translate(COLS / 2, WATER_Y, ROWS / 2);
+  const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: "#3a6680", flatShading: true, transparent: true, opacity: 0.82 }));
+  m.userData.base = Float32Array.from(g.attributes.position.array);
+  return m;
+}
+
+function instanced(geo: THREE.BufferGeometry, items: { x: number; z: number; s: number; r: number; c: string }[]) {
+  const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ flatShading: true }), Math.max(1, items.length));
+  const o = new THREE.Object3D();
+  items.forEach((it, i) => {
+    o.position.set(it.x, groundAt(it.x, it.z), it.z);
+    o.rotation.set(0, it.r, 0);
+    o.scale.setScalar(it.s);
+    o.updateMatrix();
+    m.setMatrixAt(i, o.matrix);
+    m.setColorAt(i, new THREE.Color(it.c));
   });
+  m.count = items.length;
+  return m;
+}
+
+function buildNature(scene: THREE.Scene) {
+  const trees: { x: number; z: number; s: number; r: number; c: string }[] = [];
+  const pines: typeof trees = [],
+    rocks: typeof trees = [],
+    bushes: typeof trees = [],
+    flowers: typeof trees = [];
+  const greens = ["#3f6a2a", "#4a7530", "#36602a", "#557d34"];
+  const pineGreens = ["#2f5528", "#2a4d25", "#365e2c"];
+  const petals = ["#c75b7a", "#e0c040", "#efe6d0", "#9a7ad0"];
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      const c = cell(x, y),
+        h = hash(x, y),
+        jx = (hash(x * 7, y) - 0.5) * 0.3,
+        jz = (hash(x, y * 7) - 0.5) * 0.3;
+      const base = { x: x + 0.5 + jx, z: y + 0.5 + jz, r: h * Math.PI * 2 };
+      if (c === "T") trees.push({ ...base, s: 0.85 + h * 0.45, c: greens[Math.floor(h * greens.length)] });
+      else if (c === "P") pines.push({ ...base, s: 0.9 + h * 0.5, c: pineGreens[Math.floor(h * pineGreens.length)] });
+      else if (c === "r") rocks.push({ ...base, s: 0.9 + h * 0.5, c: h > 0.5 ? "#7d7a72" : "#8a867c" });
+      else if (c === "b") bushes.push({ ...base, s: 0.9 + h * 0.4, c: "#47702f" });
+      else if (c === ",")
+        for (let k = 0; k < 6; k++)
+          flowers.push({ x: x + 0.15 + hash(x + k, y) * 0.7, z: y + 0.15 + hash(x, y + k) * 0.7, s: 1, r: 0, c: petals[Math.floor(hash(x * k, y) * petals.length)] });
+    }
+  const trunk = (list: typeof trees) => list.map((t) => ({ ...t, c: "#4f3520" }));
+  scene.add(instanced(natureGeo.trunk, trunk(trees)));
+  scene.add(instanced(natureGeo.canopy, trees));
+  scene.add(instanced(natureGeo.canopy2, trees.map((t) => ({ ...t, c: new THREE.Color(t.c).offsetHSL(0, 0, 0.05).getStyle() }))));
+  scene.add(instanced(natureGeo.trunk, trunk(pines)));
+  scene.add(instanced(natureGeo.pineLow, pines));
+  scene.add(instanced(natureGeo.pineHigh, pines.map((t) => ({ ...t, c: new THREE.Color(t.c).offsetHSL(0, 0, 0.04).getStyle() }))));
+  scene.add(instanced(natureGeo.rock, rocks));
+  scene.add(instanced(natureGeo.bush, bushes));
+  scene.add(instanced(natureGeo.stem, flowers.map((f) => ({ ...f, c: "#3f6a2a" }))));
+  scene.add(instanced(natureGeo.flower, flowers));
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      const c = cell(x, y);
+      if (c === "h" || c === "v") {
+        const b = makeBridge(c === "h");
+        b.position.set(x + 0.5, 0.02, y + 0.5);
+        scene.add(b);
+      }
+    }
 }
 
 export class World {
-  private ctx: CanvasRenderingContext2D;
-  private cv: HTMLCanvasElement;
+  private renderer: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera = new THREE.PerspectiveCamera(42, VIEW_W / VIEW_H, 0.1, 80);
+  private ray = new THREE.Raycaster();
+  private terrain: THREE.Mesh;
+  private water: THREE.Mesh;
+  private stationGroups: THREE.Group[] = [];
+  private rig: CharacterRig;
+  private smoke: { mesh: THREE.Mesh; t: number; ox: number; oy: number; oz: number }[] = [];
+  private hud: CanvasRenderingContext2D;
+  private hudCv: HTMLCanvasElement;
+  private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
-  private img: { tiles?: HTMLImageElement; player?: HTMLImageElement; stations?: HTMLImageElement } = {};
-  private minimap: HTMLCanvasElement | null = null;
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], dir: 0, walkT: 0, action: null as null | { habit: Habit; neg: boolean }, actionT: 0, pendingStation: null as Station | null };
-  private cam = { x: 0, y: 0, follow: true };
+
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean }, actionT: 0, pendingStation: null as Station | null };
+  private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
+  private keys = new Set<string>();
   private drops: Drop[] = [];
   private sparks: Spark[] = [];
   private markers: Marker[] = [];
-  private hover: { tx: number; ty: number; cx: number; cy: number } | null = null;
-  private drag: { id: number; sx: number; sy: number; camx: number; camy: number; moved: boolean } | null = null;
+  private hover: { x: number; y: number } | null = null;
+  private pointers = new Map<number, { x: number; y: number }>();
+  private drag: { id: number; sx: number; sy: number; lx: number; ly: number; moved: boolean } | null = null;
+  private pinch: number | null = null;
   private last = performance.now();
   private raf = 0;
 
-  constructor(cv: HTMLCanvasElement, cb: WorldCallbacks) {
-    this.cv = cv;
+  constructor(glCanvas: HTMLCanvasElement, hudCanvas: HTMLCanvasElement, cb: WorldCallbacks) {
     this.cb = cb;
-    this.ctx = cv.getContext("2d")!;
-    this.ctx.imageSmoothingEnabled = false;
-    this.snapCamera();
-    cv.addEventListener("pointerdown", this.onDown);
-    cv.addEventListener("pointermove", this.onMove);
-    cv.addEventListener("pointerup", this.onUp);
-    cv.addEventListener("pointercancel", this.onCancel);
-    cv.addEventListener("pointerleave", this.onLeave);
-    cv.addEventListener("contextmenu", this.onContext);
-    document.addEventListener("keydown", this.onKey);
-    Promise.all([loadImage("/sprites/tiles.png"), loadImage("/sprites/player.png"), loadImage("/sprites/stations.png")]).then(([tiles, player, stations]) => {
-      this.img = { tiles, player, stations };
-      this.buildMinimap();
+    this.renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    this.renderer.setSize(VIEW_W, VIEW_H, false);
+    this.hudCv = hudCanvas;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    hudCanvas.width = VIEW_W * dpr;
+    hudCanvas.height = VIEW_H * dpr;
+    this.hud = hudCanvas.getContext("2d")!;
+    this.hud.scale(dpr, dpr);
+
+    const sc = this.scene;
+    sc.background = new THREE.Color(FOG);
+    sc.fog = new THREE.Fog(FOG, 13, 30);
+    sc.add(new THREE.HemisphereLight("#dfe6ea", "#4d4330", 1.6));
+    const sun = new THREE.DirectionalLight("#fff0d2", 2.0);
+    sun.position.set(-6, 10, 4);
+    sc.add(sun);
+
+    this.terrain = buildTerrain();
+    sc.add(this.terrain);
+    this.water = buildWater();
+    sc.add(this.water);
+    buildNature(sc);
+    STATIONS.forEach((s) => {
+      const g = makeStation(s.id);
+      g.position.set(s.x + s.w / 2, stationBase.get(s.id)!, s.y + s.h / 2);
+      g.userData.station = s;
+      sc.add(g);
+      this.stationGroups.push(g);
+      const ch = CHIMNEYS[s.id];
+      if (ch)
+        for (let i = 0; i < 4; i++) {
+          const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), mat("#c8c8c4", { opacity: 0.6 }));
+          sc.add(m);
+          this.smoke.push({ mesh: m, t: i / 4, ox: g.position.x + ch[0], oy: g.position.y + ch[1], oz: g.position.z + ch[2] });
+        }
     });
+    this.rig = makeCharacter();
+    sc.add(this.rig.root);
+    this.minimap = this.buildMinimap();
+
+    hudCanvas.addEventListener("pointerdown", this.onDown);
+    hudCanvas.addEventListener("pointermove", this.onMove);
+    hudCanvas.addEventListener("pointerup", this.onUp);
+    hudCanvas.addEventListener("pointercancel", this.onCancel);
+    hudCanvas.addEventListener("pointerleave", this.onLeave);
+    hudCanvas.addEventListener("contextmenu", this.onContext);
+    hudCanvas.addEventListener("wheel", this.onWheel, { passive: false });
+    document.addEventListener("keydown", this.onKeyDown);
+    document.addEventListener("keyup", this.onKeyUp);
     this.raf = requestAnimationFrame(this.loop);
   }
 
   destroy() {
     cancelAnimationFrame(this.raf);
-    const cv = this.cv;
-    cv.removeEventListener("pointerdown", this.onDown);
-    cv.removeEventListener("pointermove", this.onMove);
-    cv.removeEventListener("pointerup", this.onUp);
-    cv.removeEventListener("pointercancel", this.onCancel);
-    cv.removeEventListener("pointerleave", this.onLeave);
-    cv.removeEventListener("contextmenu", this.onContext);
-    document.removeEventListener("keydown", this.onKey);
+    const h = this.hudCv;
+    h.removeEventListener("pointerdown", this.onDown);
+    h.removeEventListener("pointermove", this.onMove);
+    h.removeEventListener("pointerup", this.onUp);
+    h.removeEventListener("pointercancel", this.onCancel);
+    h.removeEventListener("pointerleave", this.onLeave);
+    h.removeEventListener("contextmenu", this.onContext);
+    h.removeEventListener("wheel", this.onWheel);
+    document.removeEventListener("keydown", this.onKeyDown);
+    document.removeEventListener("keyup", this.onKeyUp);
+    this.renderer.dispose();
   }
 
-  // ---------------- camera ----------------
-  private camTarget() {
-    const W = this.cv.width,
-      H = this.cv.height;
-    const x = Math.max(0, Math.min(COLS * T - W, (this.P.px + 0.5) * T - W / 2));
-    const y = Math.max(0, Math.min(ROWS * T - H, (this.P.py + 0.5) * T - H / 2));
-    return { x, y };
+  // ---------------- helpers ----------------
+  private project(x: number, y: number, z: number) {
+    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    return { x: ((v.x + 1) / 2) * VIEW_W, y: ((1 - v.y) / 2) * VIEW_H, behind: v.z > 1 };
   }
-  private snapCamera() {
-    const t = this.camTarget();
-    this.cam.x = t.x;
-    this.cam.y = t.y;
+  private viewPos(e: { clientX: number; clientY: number }) {
+    const r = this.hudCv.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
-  private clampCam() {
-    this.cam.x = Math.max(0, Math.min(COLS * T - this.cv.width, this.cam.x));
-    this.cam.y = Math.max(0, Math.min(ROWS * T - this.cv.height, this.cam.y));
-  }
-
-  // ---------------- drawing ----------------
-  private tileSrc(x: number, y: number, now: number): { base: [number, number]; over?: [number, number] } {
-    const c = cell(x, y);
-    const g = ATLAS.tiles.grass as unknown as [number, number][];
-    const grass = g[Math.floor(hash(x, y) * g.length)];
-    const mask = (pred: (c: string) => boolean) => (pred(cell(x, y - 1)) ? 1 : 0) | (pred(cell(x + 1, y)) ? 2 : 0) | (pred(cell(x, y + 1)) ? 4 : 0) | (pred(cell(x - 1, y)) ? 8 : 0);
-    switch (c) {
-      case "=":
-        return { base: (ATLAS.tiles.path as unknown as [number, number][])[mask(isPath)] };
-      case "~":
-      case "h":
-      case "v": {
-        const f = Math.floor(now / 450 + hash(x, y) * 3) % 3;
-        const base = (ATLAS.water as unknown as [number, number][][])[f][mask(isWater)];
-        if (c === "h") return { base, over: ATLAS.tiles.bridgeH as unknown as [number, number] };
-        if (c === "v") return { base, over: ATLAS.tiles.bridgeV as unknown as [number, number] };
-        return { base };
-      }
-      case "T": {
-        const t = ATLAS.tiles.tree as unknown as [number, number][];
-        return { base: t[Math.floor(hash(y, x) * t.length)] };
-      }
-      case "P":
-        return { base: (ATLAS.tiles.pine as unknown as [number, number][])[0] };
-      case "r":
-        return { base: ATLAS.tiles.rock as unknown as [number, number] };
-      case "b":
-        return { base: ATLAS.tiles.bush as unknown as [number, number] };
-      case "f":
-        return { base: grass, over: ATLAS.tiles.fence as unknown as [number, number] };
-      case ",": {
-        const f = ATLAS.tiles.flowers as unknown as [number, number][];
-        return { base: f[Math.floor(hash(x + 3, y) * f.length)] };
-      }
-      default:
-        return { base: grass };
-    }
-  }
-  private drawTiles(now: number) {
-    const ctx = this.ctx,
-      im = this.img.tiles!,
-      A = ATLAS.tile;
-    const x0 = Math.floor(this.cam.x / T),
-      y0 = Math.floor(this.cam.y / T);
-    const x1 = Math.min(COLS - 1, Math.ceil((this.cam.x + this.cv.width) / T)),
-      y1 = Math.min(ROWS - 1, Math.ceil((this.cam.y + this.cv.height) / T));
-    for (let y = y0; y <= y1; y++)
-      for (let x = x0; x <= x1; x++) {
-        const { base, over } = this.tileSrc(x, y, now);
-        const dx = Math.round(x * T - this.cam.x),
-          dy = Math.round(y * T - this.cam.y);
-        ctx.drawImage(im, base[0], base[1], A, A, dx, dy, T, T);
-        if (over) ctx.drawImage(im, over[0], over[1], A, A, dx, dy, T, T);
-      }
-  }
-  private drawStation(s: Station, now: number) {
-    const ctx = this.ctx,
-      a = ATLAS.stations[s.id];
-    const dx = Math.round(s.x * T - this.cam.x),
-      dy = Math.round((s.y + s.h) * T - a.h * S - this.cam.y);
-    ctx.drawImage(this.img.stations!, a.sx, a.sy, a.w, a.h, dx, dy, a.w * S, a.h * S);
-    if (s.id === "mind") {
-      const gl = 0.5 + 0.5 * Math.sin(now / 500);
-      ctx.fillStyle = `rgba(190,225,255,${0.18 * gl})`;
-      ctx.fillRect(dx + 16, dy + 4, 32, 80);
-    }
-    if (s.id === "relationship" || s.id === "tavern") {
-      const cx = s.id === "relationship" ? dx + 72 : dx + 48,
-        cy = s.id === "relationship" ? dy + 6 : dy + 2;
-      for (let i = 0; i < 3; i++) {
-        const t = (now / 1400 + i / 3) % 1;
-        ctx.fillStyle = `rgba(210,210,210,${0.55 * (1 - t)})`;
-        const r = 3 + t * 5;
-        ctx.fillRect(Math.round(cx + Math.sin(t * 6 + i) * 4 - r / 2), Math.round(cy - t * 30), r, r);
-      }
-    }
-  }
-  private drawPlayer(now: number) {
-    const ctx = this.ctx,
-      P = this.P,
-      pa = ATLAS.player;
-    const x = Math.round(P.px * T - this.cam.x),
-      y = Math.round(P.py * T - this.cam.y);
-    ctx.fillStyle = "rgba(0,0,0,.28)";
-    ctx.beginPath();
-    ctx.ellipse(x + 16, y + 28, 11, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    let col: number;
-    if (P.action) col = (P.action.neg ? pa.vice : pa.work)[Math.floor(now / 220) % 2];
-    else if (P.path.length) col = pa.walk[Math.floor(P.walkT * 8) % 4];
-    else col = 0;
-    ctx.drawImage(this.img.player!, col * pa.w, P.dir * pa.h, pa.w, pa.h, x, y + T - pa.h * S + 2, pa.w * S, pa.h * S);
-  }
-  private drawLabels() {
-    const ctx = this.ctx;
-    ctx.font = "10px Silkscreen, monospace";
-    ctx.textAlign = "center";
-    STATIONS.forEach((s) => {
-      const sk = s.skill ? SK[s.skill] : null;
-      const lab = (sk ? sk.ico : "🍺") + " " + s.name;
-      const cx = Math.round((s.x + s.w / 2) * T - this.cam.x),
-        cy = Math.round((s.y + s.h) * T - this.cam.y);
-      const tw = ctx.measureText(lab).width + 8;
-      ctx.fillStyle = "rgba(0,0,0,.55)";
-      ctx.fillRect(cx - tw / 2, cy + 2, tw, 13);
-      ctx.fillStyle = "#f5e7c3";
-      ctx.fillText(lab, cx, cy + 12);
-    });
-  }
-  private drawMarkers() {
-    const ctx = this.ctx;
-    this.markers.forEach((m) => {
-      const k = Math.min(1, m.t / 0.5);
-      const r = 7 - k * 3;
-      const x = m.x - this.cam.x,
-        y = m.y - this.cam.y;
-      ctx.globalAlpha = 1 - k * 0.6;
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#000";
-      ctx.beginPath();
-      ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r);
-      ctx.stroke();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = m.red ? "#ff3b2f" : "#ffe14a";
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    });
-  }
-  private drawDrops() {
-    const ctx = this.ctx,
-      W = this.cv.width;
-    ctx.font = "bold 13px Silkscreen, monospace";
-    ctx.textAlign = "right";
-    this.drops.forEach((d) => {
-      if (d.t < 0) return;
-      const y = 220 - d.t * 60;
-      ctx.globalAlpha = Math.max(0, Math.min(1, (1.8 - d.t) / 0.4));
-      const txt = d.ico + " " + d.text;
-      ctx.fillStyle = "#000";
-      ctx.fillText(txt, W - 13, y + 1);
-      ctx.fillStyle = d.neg ? "#ff7b66" : "#f5f5f5";
-      ctx.fillText(txt, W - 14, y);
-    });
-    ctx.globalAlpha = 1;
-  }
-  private drawHoverText() {
-    if (!this.hover || this.drag?.moved) return;
-    const { tx, ty } = this.hover;
+  /** What is under a point in view coordinates: a station, or a ground tile. */
+  private pick(vx: number, vy: number): { station?: Station; tile?: Pt; point?: THREE.Vector3 } {
+    this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
+    const hit = this.ray.intersectObjects([...this.stationGroups, this.terrain], true)[0];
+    if (!hit) return {};
+    let o: THREE.Object3D | null = hit.object;
+    while (o && !o.userData.station) o = o.parent;
+    if (o) return { station: o.userData.station as Station, point: hit.point };
+    const tx = Math.floor(hit.point.x),
+      ty = Math.floor(hit.point.z);
     const s = stationAt(tx, ty);
-    const ctx = this.ctx;
-    ctx.font = "bold 12px 'Alegreya Sans', Georgia, serif";
-    ctx.textAlign = "left";
-    let verb = "Walk here",
-      name = "";
-    if (s) {
-      verb = s.verb[0].toUpperCase() + s.verb.slice(1);
-      name = " " + s.name;
-    } else if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || blocked[ty][tx]) return;
-    const draw = (t: string, x: number, c: string) => {
-      ctx.fillStyle = "#000";
-      ctx.fillText(t, x + 1, 17);
-      ctx.fillStyle = c;
-      ctx.fillText(t, x, 16);
-    };
-    draw(verb, 6, "#ffffff");
-    if (name) draw(name, 6 + ctx.measureText(verb).width, "#5fe0e0");
+    if (s) return { station: s, point: hit.point };
+    return { tile: [tx, ty], point: hit.point };
   }
+  private stationScreenPos(s: Station) {
+    const g = this.stationGroups.find((g) => g.userData.station === s)!;
+    const p = this.project(g.position.x, g.position.y + 1.4, g.position.z);
+    return { x: p.x, y: p.y };
+  }
+
+  // ---------------- minimap ----------------
   private buildMinimap() {
     const c = document.createElement("canvas");
     c.width = COLS * MM.scale;
@@ -281,101 +329,206 @@ export class World {
     for (let y = 0; y < ROWS; y++)
       for (let x = 0; x < COLS; x++) {
         const ch = cell(x, y);
-        g.fillStyle = ch === "~" ? "#2f6c9f" : ch === "h" || ch === "v" ? "#7a5230" : ch === "=" ? "#a88a5a" : ch === "T" || ch === "P" ? "#2c5a22" : ch === "r" ? "#777b86" : "#4b7d31";
+        g.fillStyle = ch === "~" ? "#2f5672" : ch === "h" || ch === "v" ? "#6b4a2c" : ch === "=" ? "#9b8460" : ch === "T" || ch === "P" ? "#2f4a22" : ch === "r" ? "#77746c" : "#4f6a2f";
         g.fillRect(x * MM.scale, y * MM.scale, MM.scale, MM.scale);
       }
     STATIONS.forEach((s) => {
-      g.fillStyle = "#c8b28a";
+      g.fillStyle = "#b9a888";
       g.fillRect(s.x * MM.scale, s.y * MM.scale, s.w * MM.scale, s.h * MM.scale);
     });
-    this.minimap = c;
+    return c;
   }
   private mmCenter() {
-    return { x: this.cv.width - MM.r - MM.pad, y: MM.r + MM.pad };
+    return { x: VIEW_W - MM.r - MM.pad, y: MM.r + MM.pad };
+  }
+  private compassCenter() {
+    const c = this.mmCenter();
+    return { x: c.x - MM.r - 4, y: c.y - MM.r + 12 };
   }
   private drawMinimap() {
-    if (!this.minimap) return;
-    const ctx = this.ctx,
+    const ctx = this.hud,
       { x: cx, y: cy } = this.mmCenter(),
-      P = this.P;
+      P = this.P,
+      yaw = this.cam.yaw;
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, MM.r, 0, Math.PI * 2);
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = "#0b0a08";
     ctx.fill();
     ctx.clip();
-    const ox = cx - (P.px + 0.5) * MM.scale,
-      oy = cy - (P.py + 0.5) * MM.scale;
-    ctx.drawImage(this.minimap, Math.round(ox), Math.round(oy));
-    // station icons
+    ctx.translate(cx, cy);
+    ctx.rotate(yaw);
+    const ox = -(P.px + 0.5) * MM.scale,
+      oy = -(P.py + 0.5) * MM.scale;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.minimap, ox, oy);
     ctx.font = "11px sans-serif";
     ctx.textAlign = "center";
     STATIONS.forEach((s) => {
-      const sk = s.skill ? SK[s.skill] : null;
-      ctx.fillText(sk ? sk.ico : "🍺", ox + (s.x + s.w / 2) * MM.scale, oy + (s.y + s.h / 2) * MM.scale + 4);
+      ctx.save();
+      ctx.translate(ox + (s.x + s.w / 2) * MM.scale, oy + (s.y + s.h / 2) * MM.scale);
+      ctx.rotate(-yaw);
+      ctx.fillText(s.skill ? SK[s.skill].ico : "🍺", 0, 4);
+      ctx.restore();
     });
-    // destination flag
     if (P.path.length) {
       const [tx, ty] = P.path[P.path.length - 1];
-      ctx.fillStyle = "#ff3b2f";
-      ctx.fillRect(ox + tx * MM.scale, oy + ty * MM.scale - 4, 2, 6);
+      ctx.fillStyle = "#e0402f";
+      ctx.fillRect(ox + tx * MM.scale + 1, oy + ty * MM.scale - 3, 2, 6);
     }
     ctx.restore();
-    // player dot
     ctx.fillStyle = "#fff";
     ctx.fillRect(cx - 2, cy - 2, 4, 4);
     // frame
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = "#3b2b1d";
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#2e2318";
     ctx.beginPath();
-    ctx.arc(cx, cy, MM.r + 1, 0, Math.PI * 2);
+    ctx.arc(cx, cy, MM.r + 2, 0, Math.PI * 2);
     ctx.stroke();
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = "#a88a5a";
+    ctx.strokeStyle = "#8c7650";
     ctx.beginPath();
-    ctx.arc(cx, cy, MM.r + 3, 0, Math.PI * 2);
+    ctx.arc(cx, cy, MM.r + 5, 0, Math.PI * 2);
     ctx.stroke();
+    // compass: needle points to north as seen by the camera
+    const k = this.compassCenter();
+    ctx.beginPath();
+    ctx.arc(k.x, k.y, 14, 0, Math.PI * 2);
+    ctx.fillStyle = "#2e2318";
+    ctx.fill();
+    ctx.strokeStyle = "#8c7650";
+    ctx.stroke();
+    ctx.save();
+    ctx.translate(k.x, k.y);
+    ctx.rotate(yaw);
+    ctx.fillStyle = "#c8432f";
+    ctx.beginPath();
+    ctx.moveTo(0, -11); ctx.lineTo(4, 0); ctx.lineTo(-4, 0); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#d9cfb8";
+    ctx.beginPath();
+    ctx.moveTo(0, 11); ctx.lineTo(4, 0); ctx.lineTo(-4, 0); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#f2e8cf";
+    ctx.font = "bold 8px sans-serif";
+    ctx.fillText("N", 0, -12);
+    ctx.restore();
+  }
+  private inMinimap(x: number, y: number) {
+    const c = this.mmCenter();
+    return Math.hypot(x - c.x, y - c.y) <= MM.r;
+  }
+  private inCompass(x: number, y: number) {
+    const c = this.compassCenter();
+    return Math.hypot(x - c.x, y - c.y) <= 15;
   }
 
-  private render(now: number) {
-    const ctx = this.ctx;
-    ctx.fillStyle = "#101a0c";
-    ctx.fillRect(0, 0, this.cv.width, this.cv.height);
-    if (!this.img.tiles) return;
-    this.drawTiles(now);
-    this.drawMarkers();
-    const items = STATIONS.map((s) => ({ y: s.y + s.h, f: () => this.drawStation(s, now) }))
-      .concat([{ y: this.P.py + 1, f: () => this.drawPlayer(now) }])
-      .sort((a, b) => a.y - b.y);
-    items.forEach((i) => i.f());
-    this.drawLabels();
+  // ---------------- HUD ----------------
+  private drawHud(now: number) {
+    const ctx = this.hud;
+    ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    // station labels at the foot of each building
+    ctx.font = "10px Silkscreen, monospace";
+    ctx.textAlign = "center";
+    STATIONS.forEach((s) => {
+      const g = this.stationGroups.find((g) => g.userData.station === s)!;
+      const p = this.project(g.position.x, g.position.y, g.position.z + s.h / 2 + 0.15);
+      if (p.behind || p.x < -40 || p.x > VIEW_W + 40 || p.y < -20 || p.y > VIEW_H + 20) return;
+      const lab = (s.skill ? SK[s.skill].ico : "🍺") + " " + s.name;
+      const tw = ctx.measureText(lab).width + 8;
+      ctx.fillStyle = "rgba(0,0,0,.5)";
+      ctx.fillRect(p.x - tw / 2, p.y, tw, 13);
+      ctx.fillStyle = "#f2e6c4";
+      ctx.fillText(lab, p.x, p.y + 10);
+    });
+    // click markers
+    this.markers.forEach((m) => {
+      const p = this.project(m.x, groundAt(m.x, m.z) + 0.05, m.z);
+      const k = Math.min(1, m.t / 0.5),
+        r = 7 - k * 3;
+      ctx.globalAlpha = 1 - k * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r); ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#000";
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = m.red ? "#ff3b2f" : "#ffe14a";
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    });
+    // sparks
     this.sparks.forEach((s) => {
-      ctx.fillStyle = s.c;
       ctx.globalAlpha = Math.max(0, 1 - s.t / 1.2);
-      ctx.fillRect(s.x - this.cam.x, s.y - this.cam.y, 3, 3);
+      ctx.fillStyle = s.c;
+      ctx.fillRect(s.x, s.y, 3, 3);
     });
     ctx.globalAlpha = 1;
-    this.drawDrops();
+    // XP drops
+    ctx.font = "bold 13px Silkscreen, monospace";
+    ctx.textAlign = "right";
+    this.drops.forEach((d) => {
+      if (d.t < 0) return;
+      const y = 230 - d.t * 60;
+      ctx.globalAlpha = Math.max(0, Math.min(1, (1.8 - d.t) / 0.4));
+      const txt = d.ico + " " + d.text;
+      ctx.fillStyle = "#000";
+      ctx.fillText(txt, VIEW_W - 13, y + 1);
+      ctx.fillStyle = d.neg ? "#ff7b66" : "#f5f5f5";
+      ctx.fillText(txt, VIEW_W - 14, y);
+    });
+    ctx.globalAlpha = 1;
     this.drawMinimap();
-    this.drawHoverText();
+    // hover text
+    if (this.hover && !this.drag?.moved && !this.inMinimap(this.hover.x, this.hover.y)) {
+      let verb = "",
+        name = "";
+      if (this.inCompass(this.hover.x, this.hover.y)) verb = "Face North";
+      else {
+        const p = this.pick(this.hover.x, this.hover.y);
+        if (p.station) {
+          verb = p.station.verb[0].toUpperCase() + p.station.verb.slice(1);
+          name = " " + p.station.name;
+        } else if (p.tile && !blocked[p.tile[1]]?.[p.tile[0]]) verb = "Walk here";
+      }
+      if (verb) {
+        ctx.font = "bold 13px 'Alegreya Sans', Georgia, serif";
+        ctx.textAlign = "left";
+        const t = (s: string, x: number, c: string) => {
+          ctx.fillStyle = "#000";
+          ctx.fillText(s, x + 1, 19);
+          ctx.fillStyle = c;
+          ctx.fillText(s, x, 18);
+        };
+        t(verb, 8, "#ffffff");
+        if (name) t(name, 8 + ctx.measureText(verb).width, "#5fe0e0");
+      }
+    }
+    void now;
   }
 
+  // ---------------- frame ----------------
   private loop = (now: number) => {
-    const P = this.P;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
+    const P = this.P,
+      rig = this.rig;
+    // keyboard camera
+    if (this.keys.has("ArrowLeft")) this.cam.yaw -= dt * 1.8;
+    if (this.keys.has("ArrowRight")) this.cam.yaw += dt * 1.8;
+    if (this.keys.has("ArrowUp")) this.cam.pitch = Math.min(1.3, this.cam.pitch + dt * 1.2);
+    if (this.keys.has("ArrowDown")) this.cam.pitch = Math.max(0.42, this.cam.pitch - dt * 1.2);
+    // movement
+    let walking = false;
     if (P.path.length && !P.action) {
+      walking = true;
       P.walkT += dt;
       const [nx, ny] = P.path[0];
-      const speed = 5.5;
+      const speed = 3.6;
       const dx = nx - P.px,
         dy = ny - P.py;
       const dist = Math.hypot(dx, dy);
-      // sheet rows: 0 down, 1 left, 2 right, 3 up
-      if (dx > 0.01) P.dir = 2;
-      else if (dx < -0.01) P.dir = 1;
-      else if (dy > 0.01) P.dir = 0;
-      else if (dy < -0.01) P.dir = 3;
+      if (dist > 0.001) P.face = Math.atan2(dx, dy);
       if (dist <= speed * dt) {
         P.px = nx; P.py = ny; P.x = nx; P.y = ny;
         P.path.shift();
@@ -383,7 +536,7 @@ export class World {
           const s = P.pendingStation;
           P.pendingStation = null;
           this.faceStation(s);
-          this.cb.openStation(s, this.menuPosFor(s));
+          this.cb.openStation(s, this.stationScreenPos(s));
         }
       } else {
         P.px += (dx / dist) * speed * dt;
@@ -392,14 +545,55 @@ export class World {
     }
     if (P.action) {
       P.actionT += dt;
-      if (P.actionT >= 1.1) this.finishAction();
+      if (P.actionT >= 1.4) this.finishAction();
     }
-    if (this.cam.follow) {
-      const t = this.camTarget();
-      const k = 1 - Math.pow(0.0005, dt);
-      this.cam.x += (t.x - this.cam.x) * k;
-      this.cam.y += (t.y - this.cam.y) * k;
+    // character pose
+    const wx = P.px + 0.5,
+      wz = P.py + 0.5;
+    rig.root.position.set(wx, standY(wx, wz), wz);
+    let d = P.face - rig.root.rotation.y;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    rig.root.rotation.y += d * Math.min(1, dt * 12);
+    const sw = walking ? Math.sin(P.walkT * 11) * 0.7 : 0;
+    rig.legL.rotation.x = sw;
+    rig.legR.rotation.x = -sw;
+    rig.armL.rotation.x = -sw * 0.8;
+    rig.pick.visible = !!P.action && !P.action.neg;
+    rig.mug.visible = !!P.action && P.action.neg;
+    if (P.action && !P.action.neg) rig.armR.rotation.x = -1.6 - Math.cos(P.actionT * 9) * 1.0;
+    else if (P.action) rig.armR.rotation.x = -1.2 - Math.max(0, Math.sin(P.actionT * 4)) * 1.2;
+    else rig.armR.rotation.x = sw * 0.8;
+    rig.root.position.y += walking ? Math.abs(Math.sin(P.walkT * 11)) * 0.03 : 0;
+    // camera follows the player
+    const k = 1 - Math.pow(0.002, dt);
+    this.cam.tx += (wx - this.cam.tx) * k;
+    this.cam.tz += (wz - this.cam.tz) * k;
+    const ty = standY(this.cam.tx, this.cam.tz) + 0.7;
+    const { yaw, pitch, dist } = this.cam;
+    this.camera.position.set(this.cam.tx + Math.sin(yaw) * Math.cos(pitch) * dist, ty + Math.sin(pitch) * dist, this.cam.tz + Math.cos(yaw) * Math.cos(pitch) * dist);
+    this.camera.lookAt(this.cam.tx, ty, this.cam.tz);
+    // water ripples
+    const wpos = this.water.geometry.attributes.position as THREE.BufferAttribute;
+    const base = this.water.userData.base as Float32Array;
+    const t = now / 1000;
+    for (let i = 0; i < wpos.count; i++) {
+      const x = base[i * 3],
+        z = base[i * 3 + 2];
+      wpos.setY(i, WATER_Y + Math.sin(x * 1.7 + t * 1.3) * 0.025 + Math.cos(z * 2.1 + t * 1.1) * 0.025);
     }
+    wpos.needsUpdate = true;
+    this.water.geometry.computeVertexNormals();
+    // standing-stone glyph pulse, chimney smoke
+    const stone = this.stationGroups.find((g) => (g.userData.station as Station).id === "mind");
+    const glyph = stone?.getObjectByName("glyph") as THREE.Mesh | undefined;
+    if (glyph) (glyph.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.4 * Math.sin(now / 500);
+    this.smoke.forEach((s) => {
+      s.t = (s.t + dt * 0.35) % 1;
+      s.mesh.position.set(s.ox + Math.sin(s.t * 5) * 0.12, s.oy + s.t * 1.4, s.oz);
+      s.mesh.scale.setScalar(0.6 + s.t * 1.6);
+      ((s.mesh.material as THREE.MeshLambertMaterial).opacity = 0.55 * (1 - s.t));
+    });
+    // effects
     this.markers.forEach((m) => (m.t += dt));
     this.markers = this.markers.filter((m) => m.t < 0.5);
     this.drops.forEach((d) => (d.t += dt));
@@ -408,96 +602,120 @@ export class World {
       s.t += dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 120 * dt;
     });
     this.sparks = this.sparks.filter((s) => s.t < 1.2);
-    this.render(now);
+
+    this.renderer.render(this.scene, this.camera);
+    this.drawHud(now);
     this.raf = requestAnimationFrame(this.loop);
   };
 
   // ---------------- input ----------------
-  private canvasPos(e: { clientX: number; clientY: number }) {
-    const r = this.cv.getBoundingClientRect();
-    const cx = ((e.clientX - r.left) * this.cv.width) / r.width,
-      cy = ((e.clientY - r.top) * this.cv.height) / r.height;
-    return { cx, cy, tx: Math.floor((cx + this.cam.x) / T), ty: Math.floor((cy + this.cam.y) / T) };
-  }
-  private inMinimap(cx: number, cy: number) {
-    const c = this.mmCenter();
-    return Math.hypot(cx - c.x, cy - c.y) <= MM.r;
-  }
   private onDown = (e: PointerEvent) => {
+    this.pointers.set(e.pointerId, this.viewPos(e));
+    if (this.pointers.size === 2) {
+      const [a, b] = [...this.pointers.values()];
+      this.pinch = Math.hypot(a.x - b.x, a.y - b.y);
+      this.drag = null;
+      return;
+    }
     if (e.button !== 0) return;
-    this.drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, camx: this.cam.x, camy: this.cam.y, moved: false };
-    this.cv.setPointerCapture(e.pointerId);
+    const p = this.viewPos(e);
+    this.drag = { id: e.pointerId, sx: p.x, sy: p.y, lx: p.x, ly: p.y, moved: false };
+    this.hudCv.setPointerCapture(e.pointerId);
   };
   private onMove = (e: PointerEvent) => {
-    const p = this.canvasPos(e);
-    this.hover = { tx: p.tx, ty: p.ty, cx: p.cx, cy: p.cy };
+    const p = this.viewPos(e);
+    this.hover = p;
+    if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, p);
+    if (this.pinch !== null && this.pointers.size === 2) {
+      const [a, b] = [...this.pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      this.cam.dist = Math.max(6, Math.min(20, this.cam.dist * (this.pinch / d)));
+      this.pinch = d;
+      return;
+    }
     const d = this.drag;
     if (!d || d.id !== e.pointerId) return;
-    const r = this.cv.getBoundingClientRect();
-    const k = this.cv.width / r.width;
-    const mx = (e.clientX - d.sx) * k,
-      my = (e.clientY - d.sy) * k;
-    if (!d.moved && Math.hypot(mx, my) > 8) {
+    if (!d.moved && Math.hypot(p.x - d.sx, p.y - d.sy) > 7) {
       d.moved = true;
-      this.cam.follow = false;
       this.cb.closeMenu();
     }
     if (d.moved) {
-      this.cam.x = d.camx - mx;
-      this.cam.y = d.camy - my;
-      this.clampCam();
+      this.cam.yaw -= (p.x - d.lx) * 0.01;
+      this.cam.pitch = Math.max(0.42, Math.min(1.3, this.cam.pitch + (p.y - d.ly) * 0.006));
     }
+    d.lx = p.x;
+    d.ly = p.y;
   };
   private onUp = (e: PointerEvent) => {
+    this.pointers.delete(e.pointerId);
+    if (this.pointers.size < 2) this.pinch = null;
     const d = this.drag;
     this.drag = null;
     if (!d || d.id !== e.pointerId || d.moved) return;
-    this.leftClick(this.canvasPos(e));
+    this.leftClick(this.viewPos(e));
   };
-  private onCancel = () => {
+  private onCancel = (e: PointerEvent) => {
+    this.pointers.delete(e.pointerId);
+    this.pinch = null;
     this.drag = null;
   };
   private onLeave = () => {
     this.hover = null;
   };
+  private onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    this.cam.dist = Math.max(6, Math.min(20, this.cam.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+  };
   private onContext = (e: MouseEvent) => {
     e.preventDefault();
-    const p = this.canvasPos(e);
-    if (this.P.action || this.inMinimap(p.cx, p.cy)) return;
-    if (p.tx < 0 || p.ty < 0 || p.tx >= COLS || p.ty >= ROWS) return;
-    const s = stationAt(p.tx, p.ty);
-    if (s) {
-      this.goToStation(s, p.cx, p.cy);
+    const v = this.viewPos(e);
+    if (this.P.action || this.inMinimap(v.x, v.y)) return;
+    const p = this.pick(v.x, v.y);
+    if (p.station) {
+      this.goToStation(p.station);
       return;
     }
-    if (blocked[p.ty][p.tx]) return;
-    this.cb.openGroundMenu([p.tx, p.ty], { x: p.cx, y: p.cy });
+    if (!p.tile) return;
+    const [tx, ty] = p.tile;
+    if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || blocked[ty][tx]) return;
+    this.cb.openGroundMenu(p.tile, v);
   };
-  private leftClick({ cx, cy, tx, ty }: { cx: number; cy: number; tx: number; ty: number }) {
+  private leftClick(v: { x: number; y: number }) {
     this.cb.closeMenu();
+    if (this.inCompass(v.x, v.y)) {
+      this.cam.yaw = 0;
+      return;
+    }
     if (this.P.action) return;
-    if (this.inMinimap(cx, cy)) {
+    if (this.inMinimap(v.x, v.y)) {
       const c = this.mmCenter();
-      const mx = Math.floor(this.P.px + 0.5 + (cx - c.x) / MM.scale),
-        my = Math.floor(this.P.py + 0.5 + (cy - c.y) / MM.scale);
+      const dx = v.x - c.x,
+        dy = v.y - c.y,
+        yaw = this.cam.yaw;
+      const wx = dx * Math.cos(-yaw) - dy * Math.sin(-yaw),
+        wy = dx * Math.sin(-yaw) + dy * Math.cos(-yaw);
+      const mx = Math.floor(this.P.px + 0.5 + wx / MM.scale),
+        my = Math.floor(this.P.py + 0.5 + wy / MM.scale);
       if (mx >= 0 && my >= 0 && mx < COLS && my < ROWS && !blocked[my][mx]) this.walkTo([mx, my]);
       return;
     }
-    if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return;
-    const s = stationAt(tx, ty);
-    if (s) {
-      this.markers.push({ x: cx + this.cam.x, y: cy + this.cam.y, t: 0, red: true });
-      this.goToStation(s, cx, cy);
+    const p = this.pick(v.x, v.y);
+    if (p.station) {
+      if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
+      this.goToStation(p.station);
       return;
     }
+    if (!p.tile) return;
+    const [tx, ty] = p.tile;
+    if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return;
     if (blocked[ty][tx]) {
       this.cb.chat("You can't walk there.", "sys");
       return;
     }
-    this.markers.push({ x: cx + this.cam.x, y: cy + this.cam.y, t: 0, red: false });
+    this.markers.push({ x: p.point!.x, z: p.point!.z, t: 0, red: false });
     this.walkTo([tx, ty]);
   }
-  /** Walk to a ground tile (used by left click, minimap and the "Walk here" menu). */
+  /** Walk to a ground tile (left click, minimap and the "Walk here" menu). */
   walkTo([tx, ty]: Pt) {
     const P = this.P;
     if (P.action) return;
@@ -508,24 +726,16 @@ export class World {
     }
     P.path = path;
     P.pendingStation = null;
-    this.cam.follow = true;
-  }
-  private menuPosFor(s: Station) {
-    return { x: (s.x + s.w / 2) * T - this.cam.x, y: s.y * T - this.cam.y };
   }
   private faceStation(s: Station) {
     const P = this.P;
-    const cx = s.x + s.w / 2 - 0.5,
-      cy = s.y + s.h / 2 - 0.5;
-    if (Math.abs(cx - P.x) > Math.abs(cy - P.y)) P.dir = cx > P.x ? 2 : 1;
-    else P.dir = cy > P.y ? 0 : 3;
+    P.face = Math.atan2(s.x + s.w / 2 - (P.x + 0.5), s.y + s.h / 2 - (P.y + 0.5));
   }
-  private goToStation(s: Station, _cx: number, _cy: number) {
+  private goToStation(s: Station) {
     const P = this.P;
-    this.cam.follow = true;
     if (P.x === s.ax && P.y === s.ay) {
       this.faceStation(s);
-      this.cb.openStation(s, this.menuPosFor(s));
+      this.cb.openStation(s, this.stationScreenPos(s));
       return;
     }
     const path = findPath(P.x, P.y, s.ax, s.ay);
@@ -537,25 +747,35 @@ export class World {
     P.pendingStation = s;
     this.cb.chat("You walk to the " + s.name.toLowerCase() + ".", "sys");
   }
-  private onKey = (e: KeyboardEvent) => {
-    const P = this.P;
+  private onKeyDown = (e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-    const k = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] } as Record<string, Pt>)[e.key];
-    if (!k || P.action) return;
+    if (e.key.startsWith("Arrow")) {
+      e.preventDefault();
+      this.keys.add(e.key);
+      return;
+    }
+    // WASD steps one tile, relative to where the camera is looking
+    const k = ({ w: 0, d: 1, s: 2, a: 3 } as Record<string, number>)[e.key.toLowerCase()];
+    const P = this.P;
+    if (k === undefined || P.action || P.path.length) return;
     e.preventDefault();
-    if (P.path.length) return;
-    const nx = P.x + k[0],
-      ny = P.y + k[1];
+    const ang = -this.cam.yaw + (k * Math.PI) / 2;
+    const fx = Math.round(Math.sin(ang)),
+      fy = -Math.round(Math.cos(ang));
+    const nx = P.x + fx,
+      ny = P.y + fy;
     if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) return;
     const st = stationAt(nx, ny);
     if (st) {
-      this.goToStation(st, 0, 0);
+      this.goToStation(st);
       return;
     }
     if (blocked[ny][nx]) return;
     P.path = [[nx, ny]];
-    this.cam.follow = true;
+  };
+  private onKeyUp = (e: KeyboardEvent) => {
+    this.keys.delete(e.key);
   };
 
   // ---------------- actions ----------------
@@ -576,9 +796,9 @@ export class World {
     const primary = h.skill2 ? 0.8 : 1;
     this.drops.push({ text: sign + Math.round(h.xp * primary), ico: SK[h.skill].ico, t: 0, neg });
     if (h.skill2) this.drops.push({ text: sign + Math.round(h.xp * 0.2), ico: SK[h.skill2].ico, t: -0.25, neg });
-    const x = P.px * T + 16,
-      y = P.py * T - 4;
-    for (let i = 0; i < leveled; i++) this.burst(x, y);
+    const r = this.rig.root.position;
+    const p = this.project(r.x, r.y + 1.3, r.z);
+    for (let i = 0; i < leveled; i++) this.burst(p.x, p.y);
   }
   private burst(x: number, y: number) {
     for (let i = 0; i < 40; i++) {

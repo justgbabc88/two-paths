@@ -25,6 +25,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [groundMenu, setGroundMenu] = useState<{ tile: [number, number]; pos: { x: number; y: number } } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hudRef = useRef<HTMLCanvasElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<World | null>(null);
   const syncRef = useRef<Sync | null>(null);
@@ -51,10 +52,14 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   }, [lines]);
 
   // ---- boot: welcome lines + sync ----
+  const welcomed = useRef(false);
   useEffect(() => {
-    chat("Welcome to Two Paths.", "lvl");
-    chat("Walk to a station and work there. Every action you take here is one you really did today.", "sys");
-    if (!stateRef.current.habits.length) chat("No habits yet. Open the Habits tab and add the starter set.", "hint");
+    if (!welcomed.current) {
+      welcomed.current = true;
+      chat("Welcome to Two Paths.", "lvl");
+      chat("Walk to a station and work there. Every action you take here is one you really did today.", "sys");
+      if (!stateRef.current.habits.length) chat("No habits yet. Open the Habits tab and add the starter set.", "hint");
+    }
     const s = new Sync(
       userId,
       (remote) => {
@@ -87,8 +92,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
 
   // ---- canvas world ----
   useEffect(() => {
-    const cv = canvasRef.current!;
-    const w = new World(cv, {
+    const w = new World(canvasRef.current!, hudRef.current!, {
       chat,
       openStation: (s, pos) => {
         setGroundMenu(null);
@@ -212,8 +216,9 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
             <div className="sync">{sync}</div>
           </div>
           <div style={{ position: "relative" }}>
-            <canvas ref={canvasRef} width={640} height={448} />
-            <div className="hint-overlay">Click to walk. Drag to look around. Right-click for options. Tap the minimap to travel.</div>
+            <canvas ref={canvasRef} className="gl" />
+            <canvas ref={hudRef} className="hud" />
+            <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Click the compass to face north.</div>
             {groundMenu && canvasRef.current && (
               <GroundMenu
                 pos={groundMenu.pos}

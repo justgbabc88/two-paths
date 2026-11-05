@@ -30,7 +30,8 @@ button{cursor:pointer}
 .frame{display:grid;grid-template-columns:1fr 260px;gap:10px}
 @media (max-width:760px){.frame{grid-template-columns:1fr}}
 .world{background:var(--panel);border:3px solid var(--line);box-shadow:0 3px 0 #000;position:relative}
-canvas{display:block;width:100%;height:auto;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:manipulation}
+canvas.gl{display:block;width:100%;height:auto;aspect-ratio:640/448}
+canvas.hud{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:pointer}
 .top{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-bottom:3px solid var(--line);background:var(--panel2)}
 .top h1{font-family:"Silkscreen",monospace;font-size:15px;margin:0;color:var(--gold2)}
 .top .sync{font-size:13px;color:var(--muted)}
@@ -119,3 +120,25 @@ h2.s{font-family:"Silkscreen",monospace;font-size:11px;color:var(--gold);margin:
 .signin-card h1{font-family:"Silkscreen",monospace;font-size:18px;margin:0;color:var(--gold2)}
 .signin-card label{font-size:13px;color:var(--muted);display:block}
 .signin-card input{width:100%;background:var(--bar);border:2px solid var(--line2);padding:7px 8px;margin-top:2px;font-size:15px}
+
+/* --- v3: carved-wood interface frames --- */
+.world,.side{
+  border:4px solid #2a1d12;
+  box-shadow:inset 0 0 0 2px #7a5c38,inset 0 0 0 4px #1c130b,0 4px 0 #000;
+  background:
+    repeating-linear-gradient(90deg,rgba(0,0,0,.06) 0 2px,transparent 2px 7px),
+    linear-gradient(#4a3524,#3a2a1c);
+}
+.world{padding:4px}
+.side{padding:4px}
+.top{background:linear-gradient(#3a2a1c,#2a1e14);border:2px solid #1c130b;border-bottom-width:2px;margin-bottom:4px}
+.world>div[style]{border:2px solid #1c130b;box-shadow:0 0 0 1px #7a5c38}
+.chat{margin-top:4px;border:2px solid #1c130b;box-shadow:inset 0 2px 6px rgba(0,0,0,.6);background:linear-gradient(#2b2017,#231a12)}
+.side nav{background:none;border:0;gap:3px;padding:2px 2px 0}
+.side nav button{background:linear-gradient(#5a4330,#3e2e20);border:2px solid #1c130b;border-bottom:0;box-shadow:inset 0 1px 0 #8a6c46;margin:0;color:#c9b48a}
+.side nav button[aria-current="page"]{background:linear-gradient(#6d5238,#4a3726);color:#f5d27a;border-bottom-color:transparent}
+.pane{border:2px solid #1c130b;box-shadow:inset 0 0 0 1px #6d5235;background:linear-gradient(#3b2b1d,#33251a);flex:1}
+.stat{background:linear-gradient(#2e2218,#261c13);border:2px solid #1c130b;box-shadow:inset 0 1px 0 #5a4430}
+.menu{border:2px solid #8c7650;box-shadow:0 0 0 2px #1c130b,0 4px 0 #000}
+.menu .mh{background:#1c130b;color:#e3c27a}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .world,:root:not([data-theme="dark"]) .side{background:linear-gradient(#8a6a48,#755a3c)}}

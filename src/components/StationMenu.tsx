@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { SK, type GameState, type Habit } from "../game/data";
-import { habitsAtStation, type Station } from "../game/world";
+import { VIEW_W, habitsAtStation, type Station } from "../game/world";
 
 interface Props {
   station: Station;
@@ -20,7 +20,7 @@ function useMenuPosition(ref: React.RefObject<HTMLDivElement | null>, canvas: HT
     const m = ref.current;
     if (!m) return;
     const r = canvas.getBoundingClientRect();
-    const sx = r.width / canvas.width;
+    const sx = r.width / VIEW_W;
     let left = pos.x * sx - 20,
       top = pos.y * sx - 10;
     const mw = Math.min(260, r.width * 0.92);
