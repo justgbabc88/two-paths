@@ -155,8 +155,8 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   const leg = (x: number) => {
     const g = new THREE.Group();
     g.position.set(x, 0.5, 0);
-    g.add(part(new THREE.CapsuleGeometry(0.072, 0.3, 1, 5), look.bottom, 0, -0.2, 0));
-    g.add(part(new THREE.CapsuleGeometry(0.076, 0.07, 1, 5).rotateX(Math.PI / 2), boots, 0, -0.43, 0.035));
+    g.add(part(new THREE.CapsuleGeometry(0.075, 0.3, 1, 4).rotateY(Math.PI / 4), look.bottom, 0, -0.2, 0));
+    g.add(part(new THREE.CapsuleGeometry(0.078, 0.07, 1, 4).rotateY(Math.PI / 4).rotateX(Math.PI / 2), boots, 0, -0.43, 0.035));
     body.add(g);
     return g;
   };
@@ -186,8 +186,8 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   const arm = (x: number) => {
     const g = new THREE.Group();
     g.position.set(x, 0.86, 0);
-    g.add(part(new THREE.CapsuleGeometry(0.06, 0.3, 1, 5), look.top, 0, -0.17, 0));
-    g.add(part(new THREE.SphereGeometry(0.06, 5, 3), look.skin, 0, -0.39, 0));
+    g.add(part(new THREE.CapsuleGeometry(0.063, 0.3, 1, 4).rotateY(Math.PI / 4), look.top, 0, -0.17, 0));
+    g.add(part(new THREE.SphereGeometry(0.063, 4, 2), look.skin, 0, -0.39, 0));
     body.add(g);
     return g;
   };
@@ -199,17 +199,17 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   head.position.set(0, 1.08, 0);
   body.add(head);
   body.add(part(new THREE.CylinderGeometry(0.05, 0.06, 0.08, 5), look.skin, 0, 0.95, 0));
-  head.add(part(new THREE.SphereGeometry(0.142, 6, 5).scale(0.95, 1.05, 0.98), look.skin));
+  head.add(part(new THREE.SphereGeometry(0.148, 6, 4).scale(0.95, 1.05, 0.98), look.skin));
   head.add(part(new THREE.SphereGeometry(0.03, 4, 3), look.skin, 0, -0.01, 0.13)); // nose
   for (const x of [-0.05, 0.05]) head.add(part(new THREE.SphereGeometry(0.017, 6, 4), "#1a1410", x, 0.025, 0.118));
   for (const x of [-0.135, 0.135]) head.add(part(new THREE.SphereGeometry(0.03, 6, 4).scale(0.6, 1, 1), look.skin, x, 0, 0));
   const style = look.hairStyle ?? "short";
   if (style !== "bald") {
-    head.add(part(new THREE.SphereGeometry(0.152, 6, 3, 0, Math.PI * 2, 0, Math.PI * 0.55), look.hair, 0, 0.012, -0.012));
-    head.add(part(new THREE.SphereGeometry(0.147, 6, 3, Math.PI * 0.15, Math.PI * 0.7, Math.PI * 0.35, Math.PI * 0.45).rotateY(Math.PI), look.hair, 0, 0.0, -0.01));
+    head.add(part(new THREE.SphereGeometry(0.158, 6, 2, 0, Math.PI * 2, 0, Math.PI * 0.55), look.hair, 0, 0.012, -0.012));
+    head.add(part(new THREE.SphereGeometry(0.152, 5, 2, Math.PI * 0.15, Math.PI * 0.7, Math.PI * 0.35, Math.PI * 0.45).rotateY(Math.PI), look.hair, 0, 0.0, -0.01));
   }
-  if (style === "long") head.add(part(new THREE.CapsuleGeometry(0.12, 0.18, 1, 5).scale(1.05, 1, 0.55), look.hair, 0, -0.14, -0.07));
-  if (style === "bun") head.add(part(new THREE.SphereGeometry(0.072, 5, 3), look.hair, 0, 0.1, -0.13));
+  if (style === "long") head.add(part(new THREE.CapsuleGeometry(0.12, 0.18, 1, 4).scale(1.05, 1, 0.55), look.hair, 0, -0.14, -0.07));
+  if (style === "bun") head.add(part(new THREE.SphereGeometry(0.075, 4, 2), look.hair, 0, 0.1, -0.13));
   if (look.tired) for (const x of [-0.05, 0.05]) head.add(part(new THREE.SphereGeometry(0.022, 6, 4).scale(1, 0.45, 0.4), "#7a5a52", x, 0.0, 0.112));
   if (look.circlet) head.add(part(new THREE.TorusGeometry(0.142, 0.012, 3, 8).rotateX(Math.PI / 2), "#d4a52a", 0, 0.06, 0));
   if (look.trim) {
@@ -223,7 +223,7 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
     cape.scale.set(1, 1, 0.75);
     body.add(cape);
   }
-  if (look.beard) head.add(part(new THREE.SphereGeometry(0.115, 6, 3, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55).scale(1, 1.25, 0.9), look.beard, 0, -0.02, 0.035));
+  if (look.beard) head.add(part(new THREE.SphereGeometry(0.12, 5, 2, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55).scale(1, 1.25, 0.9), look.beard, 0, -0.02, 0.035));
   if (look.hat) {
     const c = look.hat.color;
     if (look.hat.kind === "brim") {
