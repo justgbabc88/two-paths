@@ -5,7 +5,7 @@ import { World, habitsAtStation, type Station } from "../game/world";
 import { Sync, loadLocal, type SyncStatus } from "../lib/persistence";
 import { FuturePane } from "./FuturePane";
 import { HabitsPane, dayLabel } from "./HabitsPane";
-import { StationMenu } from "./StationMenu";
+import { GroundMenu, StationMenu } from "./StationMenu";
 import { StatsPane } from "./StatsPane";
 
 type Tab = "stats" | "future" | "habits";
@@ -22,6 +22,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [sync, setSync] = useState<SyncStatus>("loading");
   const [lines, setLines] = useState<Line[]>([]);
   const [menu, setMenu] = useState<{ s: Station; pos: { x: number; y: number } } | null>(null);
+  const [groundMenu, setGroundMenu] = useState<{ tile: [number, number]; pos: { x: number; y: number } } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -89,8 +90,18 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     const cv = canvasRef.current!;
     const w = new World(cv, {
       chat,
-      openStation: (s, pos) => setMenu({ s, pos: { ...pos } }),
-      closeMenu: () => setMenu(null),
+      openStation: (s, pos) => {
+        setGroundMenu(null);
+        setMenu({ s, pos: { ...pos } });
+      },
+      openGroundMenu: (tile, pos) => {
+        setMenu(null);
+        setGroundMenu({ tile, pos: { ...pos } });
+      },
+      closeMenu: () => {
+        setMenu(null);
+        setGroundMenu(null);
+      },
       actionDone: (h) => {
         const day = viewDayRef.current;
         const before = snapLevels(stateRef.current);
@@ -202,7 +213,18 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
           </div>
           <div style={{ position: "relative" }}>
             <canvas ref={canvasRef} width={640} height={448} />
-            <div className="hint-overlay">Tap the ground to walk. Tap a station to work there.</div>
+            <div className="hint-overlay">Click to walk. Drag to look around. Right-click for options. Tap the minimap to travel.</div>
+            {groundMenu && canvasRef.current && (
+              <GroundMenu
+                pos={groundMenu.pos}
+                canvas={canvasRef.current}
+                onWalk={() => {
+                  worldRef.current?.walkTo(groundMenu.tile);
+                  setGroundMenu(null);
+                }}
+                onClose={() => setGroundMenu(null)}
+              />
+            )}
             {menu && canvasRef.current && (
               <StationMenu
                 station={menu.s}

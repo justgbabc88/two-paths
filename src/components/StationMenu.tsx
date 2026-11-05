@@ -14,12 +14,8 @@ interface Props {
   onClose(): void;
 }
 
-export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onUndo, onExamine, onClose }: Props) {
-  const ref = useRef<HTMLDivElement>(null);
-  const habits = habitsAtStation(s, state.habits);
-  const log = state.logs[viewDay] || {};
-
-  // v1 positioning: near the tap, clamped inside the canvas.
+// v1 positioning: near the tap, clamped inside the canvas.
+function useMenuPosition(ref: React.RefObject<HTMLDivElement | null>, canvas: HTMLCanvasElement, pos: { x: number; y: number }, dep: unknown) {
   useLayoutEffect(() => {
     const m = ref.current;
     if (!m) return;
@@ -32,9 +28,32 @@ export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onU
     if (left < 4) left = 4;
     const mh = m.offsetHeight;
     if (top + mh > r.height) top = Math.max(4, r.height - mh - 4);
+    if (top < 4) top = 4;
     m.style.left = left + "px";
     m.style.top = top + "px";
-  }, [canvas, pos, s, habits.length]);
+  }, [ref, canvas, pos, dep]);
+}
+
+export function GroundMenu({ pos, canvas, onWalk, onClose }: { pos: { x: number; y: number }; canvas: HTMLCanvasElement; onWalk(): void; onClose(): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useMenuPosition(ref, canvas, pos, null);
+  return (
+    <div className="menu" ref={ref} style={{ minWidth: 140 }}>
+      <div className="mh">Choose Option</div>
+      <button onClick={onWalk}>Walk here</button>
+      <button className="cancel" onClick={onClose}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onUndo, onExamine, onClose }: Props) {
+  const ref = useRef<HTMLDivElement>(null);
+  const habits = habitsAtStation(s, state.habits);
+  const log = state.logs[viewDay] || {};
+
+  useMenuPosition(ref, canvas, pos, habits.length);
 
   return (
     <div className="menu" ref={ref}>
