@@ -270,6 +270,7 @@ export class World {
   private sparks: Spark[] = [];
   private markers: Marker[] = [];
   private fx: { text: string; t: number; dx: number }[] = [];
+  private questGivers = new Set<string>();
   private hover: { x: number; y: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private drag: { id: number; sx: number; sy: number; lx: number; ly: number; moved: boolean } | null = null;
@@ -600,6 +601,20 @@ export class World {
         ctx.fillText(lab, p.x, p.y);
       }
     }
+    // quest markers
+    ctx.font = "bold 18px Silkscreen, monospace";
+    ctx.textAlign = "center";
+    this.npcs.forEach((n) => {
+      if (!this.questGivers.has(n.w.id)) return;
+      const r = n.rig.root.position;
+      const p = this.project(r.x, r.y + 1.6, r.z);
+      if (p.behind || p.x < 0 || p.x > VIEW_W || p.y < 0 || p.y > VIEW_H) return;
+      const y = p.y - (n.bark ? 16 : 0) + Math.sin(now / 250) * 2;
+      ctx.fillStyle = "#000";
+      ctx.fillText("!", p.x + 1, y + 1);
+      ctx.fillStyle = "#f5d020";
+      ctx.fillText("!", p.x, y);
+    });
     // overhead lines from wanderers
     ctx.font = "bold 12px 'Alegreya Sans', Georgia, serif";
     ctx.textAlign = "center";
@@ -710,7 +725,8 @@ export class World {
 
   // ---------------- frame ----------------
   private loop = (now: number) => {
-    const dt = Math.min(0.05, (now - this.last) / 1000);
+    const realDt = Math.min(0.5, (now - this.last) / 1000); // wall-clock, so actions take the same time on slow devices
+    const dt = Math.min(0.05, realDt);
     this.last = now;
     const P = this.P,
       rig = this.rig;
@@ -757,7 +773,7 @@ export class World {
       }
     }
     if (P.action) {
-      P.actionT += dt;
+      P.actionT += realDt;
       const def = ACTION[P.action.id];
       if (def.fx && (P.fxT -= dt) <= 0) {
         this.fx.push({ text: def.fx, t: 0, dx: (Math.random() - 0.5) * 16 });
@@ -1008,6 +1024,16 @@ export class World {
       }
       this.pose(n.rig, n.px + 0.5, n.py + 0.5, n.face, walking, n.walkT, dt, 8);
     }
+  }
+  /** Wanderers who have a quest to offer get a gold ! overhead. */
+  setQuestGivers(ids: string[]) {
+    this.questGivers = new Set(ids);
+  }
+  /** Fireworks over the player (quest complete). */
+  celebrate() {
+    const r = this.rig.root.position;
+    const p = this.project(r.x, r.y + 1.3, r.z);
+    for (let i = 0; i < 3; i++) this.burst(p.x + (i - 1) * 20, p.y - i * 8);
   }
   /** Called by React when a conversation closes. */
   endTalk() {

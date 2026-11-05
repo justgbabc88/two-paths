@@ -9,10 +9,12 @@ import { GroundMenu, StationMenu } from "./StationMenu";
 import { Dialogue } from "./Dialogue";
 import { ForkPanel } from "./ForkPanel";
 import { futureLook, todayLook } from "../game/appearance";
+import { QUESTS, isFinished, statusOf, type Quest } from "../game/quests";
+import { QuestsPane } from "./QuestsPane";
 import type { Wanderer } from "../game/wanderers";
 import { StatsPane } from "./StatsPane";
 
-type Tab = "stats" | "future" | "habits";
+type Tab = "stats" | "future" | "quests" | "habits";
 interface Line { id: number; text: string; cls?: string }
 
 let lineId = 0;
@@ -165,6 +167,39 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     worldRef.current?.applyLook(look);
   }, [look]);
 
+  // ---- quests ----
+  useEffect(() => {
+    worldRef.current?.setQuestGivers([...new Set(QUESTS.filter((q) => statusOf(state, q) === "available").map((q) => q.giver))]);
+  }, [state]);
+  useEffect(() => {
+    // mark quests complete as soon as every step is done
+    const finished = QUESTS.filter((q) => statusOf(state, q) === "active" && isFinished(state, state.quests![q.id], q));
+    if (!finished.length) return;
+    const quests = { ...state.quests };
+    finished.forEach((q) => (quests[q.id] = { ...quests[q.id], done: dayKey(new Date()) }));
+    commit({ ...state, quests });
+    finished.forEach((q) => chat(`Congratulations, you've completed a quest: ${q.name}! (+${q.points} quest points)`, "lvl"));
+    worldRef.current?.celebrate();
+  }, [state, commit, chat]);
+  const acceptQuest = (q: Quest) => {
+    const st = stateRef.current;
+    commit({ ...st, quests: { ...st.quests, [q.id]: { started: dayKey(new Date()), tasks: [] } } });
+    chat(`Quest started: ${q.name}. It's in your Quests tab.`, "lvl");
+  };
+  const toggleTask = (q: Quest, i: number) => {
+    const st = stateRef.current;
+    const rec = st.quests?.[q.id];
+    if (!rec) return;
+    const tasks = rec.tasks.includes(i) ? rec.tasks.filter((x) => x !== i) : [...rec.tasks, i];
+    commit({ ...st, quests: { ...st.quests, [q.id]: { ...rec, tasks } } });
+  };
+  const abandonQuest = (q: Quest) => {
+    const st = stateRef.current;
+    const quests = { ...st.quests };
+    delete quests[q.id];
+    commit({ ...st, quests });
+  };
+
   // ---- menu actions ----
   const onDo = (h: Habit) => {
     setMenu(null);
@@ -284,6 +319,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
                   setTalking(null);
                   worldRef.current?.endTalk();
                 }}
+                onAccept={acceptQuest}
               />
             )}
             {groundMenu && canvasRef.current && (
@@ -321,7 +357,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         </div>
         <aside className="side">
           <nav>
-            {(["stats", "future", "habits"] as Tab[]).map((t) => (
+            {(["stats", "future", "quests", "habits"] as Tab[]).map((t) => (
               <button key={t} aria-current={tab === t ? "page" : undefined} onClick={() => setTab(t)}>
                 {t[0].toUpperCase() + t.slice(1)}
               </button>
@@ -330,6 +366,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
           <div className="pane">
             {tab === "stats" && <StatsPane state={state} c={c} selected={selected} onSelect={(id) => setSelected((cur) => (cur === id ? null : id))} />}
             {tab === "future" && <FuturePane c={c} horizon={horizon} onHorizon={setHorizon} />}
+            {tab === "quests" && <QuestsPane state={state} onToggleTask={toggleTask} onAbandon={abandonQuest} />}
             {tab === "habits" && (
               <HabitsPane
                 state={state}

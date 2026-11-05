@@ -3,17 +3,23 @@ import type { GameState } from "../game/data";
 import type { Computed } from "../game/logic";
 import { buildRecord, observe, tip, type Wanderer } from "../game/wanderers";
 import { askWanderer, type WanderTurn } from "../lib/wander";
+import { QUESTS, statusOf, stepProgress, type Quest } from "../game/quests";
 
 interface Props {
   w: Wanderer;
   state: GameState;
   c: Computed;
   onClose(): void;
+  onAccept(q: Quest): void;
 }
 
 // Conversation with a wanderer. Answers come from Claude when the server is set up;
 // otherwise the wanderer falls back to their written lines.
-export function Dialogue({ w, state, c, onClose }: Props) {
+export function Dialogue({ w, state, c, onClose, onAccept }: Props) {
+  const [questView, setQuestView] = useState(false);
+  const mine = QUESTS.filter((q) => q.giver === w.id);
+  const offer = mine.find((q) => statusOf(state, q) === "available");
+  const running = mine.filter((q) => statusOf(state, q) === "active");
   const [turns, setTurns] = useState<WanderTurn[]>([]);
   const [busy, setBusy] = useState(false);
   const [ai, setAi] = useState(true);
@@ -70,6 +76,37 @@ export function Dialogue({ w, state, c, onClose }: Props) {
       <div className="dname">
         {w.name} <span>{w.title}</span>
       </div>
+      {questView ? (
+        <div className="dbody">
+          {offer ? (
+            <>
+              <p>{offer.pitch}</p>
+              <p className="qcard">
+                <b>Quest: {offer.name}</b> ({offer.points} QP, {offer.window} days)
+                <br />
+                <i>{offer.why}</i>
+              </p>
+              <ul className="qsteps">
+                {offer.steps.map((s, i) => (
+                  <li key={i}>○ {s.text}</li>
+                ))}
+              </ul>
+            </>
+          ) : running.length ? (
+            running.map((q) => {
+              const rec = state.quests![q.id];
+              const done = q.steps.filter((s, i) => stepProgress(state, rec, s, i).done).length;
+              return (
+                <p key={q.id}>
+                  How's <b>{q.name}</b> going? You've finished {done} of {q.steps.length} steps. Check your Quests tab.
+                </p>
+              );
+            })
+          ) : (
+            <p>Nothing more from me just now. Finish what you've started and come back.</p>
+          )}
+        </div>
+      ) : (
       <div className="dbody" ref={bodyRef}>
         {turns.map((t, i) =>
           t.role === "assistant" ? (
@@ -82,6 +119,7 @@ export function Dialogue({ w, state, c, onClose }: Props) {
         )}
         {busy && <p className="thinking">{w.name} thinks it over…</p>}
       </div>
+      )}
       <form
         className="dask"
         onSubmit={(e) => {
@@ -96,10 +134,24 @@ export function Dialogue({ w, state, c, onClose }: Props) {
         <button disabled={busy || !text.trim()}>Ask</button>
       </form>
       <div className="dopts">
-        <button onClick={() => void ask("Any advice for me?")} disabled={busy}>
+        {questView && offer && (
+          <button
+            className="accept"
+            onClick={() => {
+              onAccept(offer);
+              setQuestView(false);
+            }}
+          >
+            Accept quest
+          </button>
+        )}
+        <button className={offer && !questView ? "questbtn" : ""} onClick={() => setQuestView((v) => !v)}>
+          {questView ? "Back" : offer ? "! Any quests?" : "Any quests?"}
+        </button>
+        <button onClick={() => { setQuestView(false); void ask("Any advice for me?"); }} disabled={busy}>
           Any advice?
         </button>
-        <button onClick={() => void ask("How am I doing?")} disabled={busy}>
+        <button onClick={() => { setQuestView(false); void ask("How am I doing?"); }} disabled={busy}>
           How am I doing?
         </button>
         <button className="bye" onClick={onClose}>

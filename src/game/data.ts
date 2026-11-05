@@ -34,11 +34,20 @@ export interface Habit {
 /** logs[dayKey][habitId] = rep count */
 export type Logs = Record<string, Record<string, number>>;
 
+/** Progress on one quest (see quests.ts). */
+export interface QuestRecord {
+  started: string;
+  tasks: number[]; // indices of task steps ticked off
+  done?: string;
+}
+export type QuestBook = Record<string, QuestRecord>;
+
 export interface GameState {
   habits: Habit[];
   logs: Logs;
   created: string;
   v: number;
+  quests?: QuestBook;
 }
 
 export const SKILLS: Skill[] = [
