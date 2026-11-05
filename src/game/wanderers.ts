@@ -19,7 +19,7 @@ export interface Wanderer {
 
 export const WANDERERS: Wanderer[] = [
   {
-    id: "marta", name: "Marta", title: "the Prospector", skill: "wealth", home: [8, 8], radius: 4,
+    id: "marta", name: "Marta", title: "the Prospector", skill: "wealth", home: [24, 21], radius: 4,
     look: { skin: "#b9825a", top: "#6b5a3a", bottom: "#4a3b2a", hair: "#2e2018", hairStyle: "bun", hat: { kind: "brim", color: "#5a4128" }, satchel: "#6b4626", belt: "#3a2614" },
     barks: ["Every vein starts as a scratch.", "Count it before you spend it.", "Slow money is still money."],
     tips: [
@@ -33,7 +33,7 @@ export const WANDERERS: Wanderer[] = [
     ],
   },
   {
-    id: "aldous", name: "Brother Aldous", title: "keeper of the stone", skill: "mind", home: [30, 9], radius: 3,
+    id: "aldous", name: "Brother Aldous", title: "keeper of the stone", skill: "mind", home: [46, 22], radius: 3,
     look: { skin: "#d6a882", top: "#5d5a66", bottom: "#3a3440", hair: "#cfcac0", hairStyle: "bald", robe: "#5d5a66", beard: "#d9d4ca", staff: true, belt: "#8a6a40" },
     barks: ["Breathe out longer than you breathe in.", "The stone is patient. So can you be.", "Quiet is a skill."],
     tips: [
@@ -47,7 +47,7 @@ export const WANDERERS: Wanderer[] = [
     ],
   },
   {
-    id: "pip", name: "Pip", title: "the Peddler", skill: "business", home: [22, 16], radius: 4,
+    id: "pip", name: "Pip", title: "the Peddler", skill: "business", home: [38, 29], radius: 4,
     look: { skin: "#e0b48e", top: "#8a3a2a", bottom: "#3b3a4a", hair: "#a8642a", hat: { kind: "cap", color: "#2f4a3a" }, apron: "#d8cba7", satchel: "#7a5533" },
     barks: ["Fresh leads, get your fresh leads!", "No one buys from a closed stall.", "Ask, and ask again."],
     tips: [
@@ -61,7 +61,7 @@ export const WANDERERS: Wanderer[] = [
     ],
   },
   {
-    id: "wen", name: "Old Wen", title: "the Archivist", skill: "learning", home: [13, 19], radius: 4,
+    id: "wen", name: "Old Wen", title: "the Archivist", skill: "learning", home: [29, 32], radius: 4,
     look: { skin: "#c58f68", top: "#3d5570", bottom: "#2e3440", hair: "#e6e2d8", hairStyle: "long", robe: "#3d5570", beard: "#eeeae0", belt: "#a88a2e", scale: 0.95 },
     barks: ["Twenty pages, then twenty more.", "A book on the shelf teaches nothing.", "Ask better questions."],
     tips: [
@@ -75,7 +75,7 @@ export const WANDERERS: Wanderer[] = [
     ],
   },
   {
-    id: "garrick", name: "Garrick", title: "the Drillmaster", skill: "health", home: [15, 25], radius: 4,
+    id: "garrick", name: "Garrick", title: "the Drillmaster", skill: "health", home: [31, 38], radius: 4,
     look: { skin: "#a8724e", top: "#7a2e2a", bottom: "#3a3328", hair: "#1e1610", hairStyle: "bald", beard: "#2a1e14", belt: "#3a2614", scale: 1.08 },
     barks: ["Up! Again!", "Sleep is training too.", "Show up. That's the whole trick."],
     tips: [
@@ -89,7 +89,7 @@ export const WANDERERS: Wanderer[] = [
     ],
   },
   {
-    id: "nell", name: "Nell", title: "the Hearthkeeper", skill: "relationship", home: [25, 16], radius: 3,
+    id: "nell", name: "Nell", title: "the Hearthkeeper", skill: "relationship", home: [41, 29], radius: 3,
     look: { skin: "#e3b896", top: "#8a5a6a", bottom: "#5a3a3a", hair: "#7a3a1e", hairStyle: "long", hat: { kind: "scarf", color: "#c9a55a" }, apron: "#ece2c8" },
     barks: ["The kettle's always on.", "Small kindnesses, every day.", "Ask them about their day. Then listen."],
     tips: [
@@ -103,7 +103,7 @@ export const WANDERERS: Wanderer[] = [
     ],
   },
   {
-    id: "tamsin", name: "Tamsin", title: "the Drifter", skill: null, home: [20, 18], radius: 9,
+    id: "tamsin", name: "Tamsin", title: "the Drifter", skill: null, home: [36, 31], radius: 14,
     look: { skin: "#d2a07a", top: "#4a5a3a", bottom: "#3a3a30", hair: "#5a4a3a", hat: { kind: "hood", color: "#56603f" }, robe: "#4f5a3c", staff: true, satchel: "#5a4128" },
     barks: ["Two roads, same feet.", "I've walked both. One's longer.", "Today counts. Quietly."],
     tips: [

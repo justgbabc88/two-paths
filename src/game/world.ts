@@ -4,9 +4,9 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, FORK, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, stationAt, stationIcon, type Pt, type Station, type StationId } from "./map";
+import { COLS, FORK, LANDMARKS, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
 import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
-import { CHIMNEYS, buildStation, hash, makeBridge, makeCharacter, makeCloud, makeFork, mat, natureGeo, type CharacterRig } from "./models";
+import { CHIMNEYS, buildStation, hash, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
@@ -73,6 +73,8 @@ for (let j = 0; j <= ROWS; j++) {
     if (tiles.some((c) => c === "=" || c === "h" || c === "v")) h = 0.42 + (h - 0.42) * 0.4;
     const st = [footprintOf(i - 1, j - 1), footprintOf(i, j - 1), footprintOf(i - 1, j), footprintOf(i, j)].find(Boolean);
     if (st) h = stationBase.get(st.id)!;
+    const rock = tiles.filter((c) => c === "M").length;
+    if (rock) h += rock * 0.3 + (rock === 4 ? 0.7 + hash(i * 1.7, j * 2.3) * 1.6 + Math.max(0, 6 - j) * 0.18 : 0);
     if (wet === 4) h = -0.55;
     else if (wet > 0) h = -0.22;
     corner[j].push(h);
@@ -102,7 +104,9 @@ function tileColor(x: number, y: number): THREE.Color {
   const nearWater = [cell(x + 1, y), cell(x - 1, y), cell(x, y + 1), cell(x, y - 1)].some(isWater);
   const st = stationAt(x, y);
   let base: string;
-  if (isWater(c)) base = "#4b4a36";
+  if (c === "M") base = corner[y]?.[x] > 3.0 ? "#a8a59c" : corner[y]?.[x] > 1.8 ? (hash(x, y) > 0.5 ? "#5e5a52" : "#67625a") : hash(x, y) > 0.5 ? "#4e4b44" : "#57534a";
+  else if (c === "w") base = "#7a6a3a";
+  else if (isWater(c)) base = "#4b4a36";
   else if (c === "=") base = "#86694a";
   else if (st?.id === "health") base = "#7a6143";
   else if (st) base = "#5c6a34";
@@ -203,6 +207,24 @@ function buildNature(scene: THREE.Scene) {
   scene.add(instanced(natureGeo.bush, bushes));
   scene.add(instanced(natureGeo.stem, flowers.map((f) => ({ ...f, c: "#3f6a2a" }))));
   scene.add(instanced(natureGeo.flower, flowers));
+  // wheat fields and the keep's stone walls
+  const stalks: typeof trees = [],
+    ears: typeof trees = [];
+  const walls: { x: number; z: number; r: number }[] = [];
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      const c = cell(x, y);
+      if (c === "w")
+        for (let k = 0; k < 9; k++) {
+          const it = { x: x + 0.17 + (k % 3) * 0.33 + (hash(x + k, y) - 0.5) * 0.1, z: y + 0.17 + Math.floor(k / 3) * 0.33 + (hash(x, y + k) - 0.5) * 0.1, s: 0.85 + hash(x * k, y) * 0.35, r: hash(k, x) * 3 };
+          stalks.push({ ...it, c: "#a89040" });
+          ears.push({ ...it, c: hash(x, k) > 0.5 ? "#d9b85a" : "#e2c46a" });
+        }
+      if (c === "W") walls.push({ x: x + 0.5, z: y + 0.5, r: cell(x - 1, y) === "W" || cell(x + 1, y) === "W" ? 0 : Math.PI / 2 });
+    }
+  scene.add(instanced(surroundGeo.stalk, stalks));
+  scene.add(instanced(surroundGeo.ear, ears));
+  scene.add(instanced(surroundGeo.wall, walls.map((w) => ({ ...w, s: 1, c: hash(w.x, w.z) > 0.5 ? "#7d7a72" : "#8a867c" }))));
   for (let y = 0; y < ROWS; y++)
     for (let x = 0; x < COLS; x++) {
       const c = cell(x, y);
@@ -222,8 +244,11 @@ export class World {
   private terrain: THREE.Mesh;
   private water: THREE.Mesh;
   private stationGroups: THREE.Group[] = [];
+  private landmarkGroups: THREE.Group[] = [];
+  private sails: THREE.Object3D[] = [];
   private stationKeys = new Map<StationId, string>();
   private spinners: THREE.Object3D[] = [];
+  private boats: THREE.Object3D[] = [];
   private fork!: THREE.Group;
   private cloud!: THREE.Group;
   private look: WorldLook | null = null;
@@ -266,7 +291,7 @@ export class World {
 
     const sc = this.scene;
     sc.background = new THREE.Color(FOG);
-    sc.fog = new THREE.Fog(FOG, 13, 30);
+    sc.fog = new THREE.Fog(FOG, 16, 36);
     this.hemi = new THREE.HemisphereLight("#dfe6ea", "#4d4330", 1.6);
     sc.add(this.hemi);
     this.sun = new THREE.DirectionalLight("#fff0d2", 2.0);
@@ -290,6 +315,22 @@ export class World {
     });
     this.rig = makeCharacter();
     sc.add(this.rig.root);
+    LANDMARKS.forEach((l) => {
+      const g = makeLandmark(l.id);
+      g.position.set(l.x + l.w / 2, groundAt(l.x + l.w / 2, l.y + l.h / 2), l.y + l.h / 2);
+      g.userData.landmark = l;
+      sc.add(g);
+      this.landmarkGroups.push(g);
+      g.traverse((o) => o.name === "sails" && this.sails.push(o));
+    });
+    [[60, 51, 0.4], [63, 49, 2.2], [54, 53, 1.2]].forEach(([x, z, r]) => {
+      const b = makeBoat();
+      b.position.set(x, WATER_Y + 0.08, z);
+      b.rotation.y = r;
+      b.name = "boat";
+      sc.add(b);
+      this.boats.push(b);
+    });
     this.fork = makeFork();
     this.fork.position.set(FORK.x + FORK.w / 2, groundAt(FORK.x + FORK.w / 2, FORK.y + 0.5), FORK.y + 0.5);
     this.fork.userData.fork = true;
@@ -384,8 +425,8 @@ export class World {
     (this.scene.background as THREE.Color).set(fog);
     const f = this.scene.fog as THREE.Fog;
     f.color.set(fog);
-    f.near = m === "slide" ? 11 : m === "keep" ? 16 : 13;
-    f.far = m === "slide" ? 27 : m === "keep" ? 36 : 30;
+    f.near = m === "slide" ? 11 : m === "keep" ? 18 : 16;
+    f.far = m === "slide" ? 28 : m === "keep" ? 40 : 36;
     this.hemi.intensity = m === "slide" ? 1.0 : m === "keep" ? 1.9 : 1.6;
     this.sun.color.set(m === "keep" ? "#ffe2a8" : m === "slide" ? "#b8bcc4" : "#fff0d2");
     this.sun.intensity = m === "slide" ? 0.9 : m === "keep" ? 2.4 : 2.0;
@@ -401,12 +442,14 @@ export class World {
     return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
   /** What is under a point in view coordinates: a station, or a ground tile. */
-  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; tile?: Pt; point?: THREE.Vector3 } {
+  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
     this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
-    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, this.fork, this.terrain], true)[0];
+    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.terrain], true)[0];
     if (!hit) return {};
     let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork) o = o.parent;
+    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark) o = o.parent;
+    const lm = (o?.userData.landmark as Landmark | undefined) ?? landmarkAt(Math.floor(hit.point.x), Math.floor(hit.point.z));
+    if (lm) return { landmark: lm, point: hit.point };
     if (o?.userData.fork || isFork(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { fork: true, point: hit.point };
     if (o?.userData.npc) return { npc: this.npcs.find((n) => n.w.id === o!.userData.npc), point: hit.point };
     if (o) return { station: o.userData.station as Station, point: hit.point };
@@ -431,10 +474,10 @@ export class World {
     for (let y = 0; y < ROWS; y++)
       for (let x = 0; x < COLS; x++) {
         const ch = cell(x, y);
-        g.fillStyle = ch === "~" ? "#2f5672" : ch === "h" || ch === "v" ? "#6b4a2c" : ch === "=" ? "#9b8460" : ch === "T" || ch === "P" ? "#2f4a22" : ch === "r" ? "#77746c" : "#4f6a2f";
+        g.fillStyle = ch === "~" ? "#2f5672" : ch === "h" || ch === "v" ? "#6b4a2c" : ch === "=" ? "#9b8460" : ch === "T" || ch === "P" ? "#2f4a22" : ch === "r" ? "#77746c" : ch === "M" ? "#5e5a54" : ch === "w" ? "#b39a4a" : ch === "W" ? "#8a867c" : ch === "f" ? "#6b4a2c" : "#4f6a2f";
         g.fillRect(x * MM.scale, y * MM.scale, MM.scale, MM.scale);
       }
-    STATIONS.forEach((s) => {
+    [...STATIONS, ...LANDMARKS].forEach((s) => {
       g.fillStyle = "#b9a888";
       g.fillRect(s.x * MM.scale, s.y * MM.scale, s.w * MM.scale, s.h * MM.scale);
     });
@@ -638,6 +681,9 @@ export class World {
         if (p.fork) {
           verb = "Look-through";
           name = " The Fork";
+        } else if (p.landmark) {
+          verb = "Examine";
+          name = " " + p.landmark.name;
         } else if (p.npc) {
           verb = "Talk-to";
           name = " " + p.npc.w.name;
@@ -741,6 +787,11 @@ export class World {
       });
     }
     this.spinners.forEach((o) => (o.rotation.y += dt * 1.2));
+    this.sails.forEach((o) => (o.rotation.z -= dt * 0.8));
+    this.boats.forEach((b, i) => {
+      b.position.y = WATER_Y + 0.08 + Math.sin(now / 900 + i) * 0.03;
+      b.rotation.z = Math.sin(now / 1100 + i * 2) * 0.05;
+    });
     this.fork.children.forEach((c, i) => {
       if (c.name === "portal") ((c as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.2 * Math.sin(now / 400 + i);
     });
@@ -1026,7 +1077,7 @@ export class World {
     if (this.pinch !== null && this.pointers.size === 2) {
       const [a, b] = [...this.pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      this.cam.dist = Math.max(6, Math.min(20, this.cam.dist * (this.pinch / d)));
+      this.cam.dist = Math.max(6, Math.min(26, this.cam.dist * (this.pinch / d)));
       this.pinch = d;
       return;
     }
@@ -1061,7 +1112,7 @@ export class World {
   };
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    this.cam.dist = Math.max(6, Math.min(20, this.cam.dist * (1 + Math.sign(e.deltaY) * 0.1)));
+    this.cam.dist = Math.max(6, Math.min(26, this.cam.dist * (1 + Math.sign(e.deltaY) * 0.1)));
   };
   private onContext = (e: MouseEvent) => {
     e.preventDefault();
@@ -1107,6 +1158,19 @@ export class World {
       this.goToFork();
       return;
     }
+    if (p.landmark) {
+      if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
+      const l = p.landmark;
+      const path = findPath(this.P.x, this.P.y, l.ax, l.ay);
+      if (path) {
+        this.P.path = path;
+        this.P.pendingStation = null;
+        this.P.pendingNpc = null;
+        this.P.pendingFork = false;
+      }
+      this.cb.chat(l.examine, "sys");
+      return;
+    }
     if (p.npc) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
       this.goToNpc(p.npc);
@@ -1126,6 +1190,15 @@ export class World {
     }
     this.markers.push({ x: p.point!.x, z: p.point!.z, t: 0, red: false });
     this.walkTo([tx, ty]);
+  }
+  /** Development aid: jump straight to a tile (only exposed in dev builds). */
+  debugTeleport(x: number, y: number) {
+    const P = this.P;
+    P.path = [];
+    P.x = P.px = x;
+    P.y = P.py = y;
+    this.cam.tx = x + 0.5;
+    this.cam.tz = y + 0.5;
   }
   /** Walk to a ground tile (left click, minimap and the "Walk here" menu). */
   walkTo([tx, ty]: Pt) {

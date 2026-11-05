@@ -262,7 +262,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
           <div style={{ position: "relative" }}>
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
-            <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Click a wanderer to talk.</div>
+            <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Explore beyond the village: keep, woods, farms, coast.</div>
             {fork && (
               <ForkPanel
                 c={c}

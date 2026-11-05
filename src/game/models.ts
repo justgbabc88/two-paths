@@ -829,3 +829,138 @@ export function makeCloud(): THREE.Group {
   }
   return g;
 }
+
+// ---------------- surroundings ----------------
+export const surroundGeo = {
+  stalk: new THREE.BoxGeometry(0.035, 0.42, 0.035).translate(0, 0.21, 0),
+  ear: new THREE.BoxGeometry(0.06, 0.12, 0.06).translate(0, 0.46, 0),
+  wall: roughen(new THREE.BoxGeometry(1.02, 0.85, 0.42, 2, 2, 1).toNonIndexed(), 0.05, 51).translate(0, 0.42, 0),
+};
+
+function keepRuins(): THREE.Group {
+  const g = new THREE.Group();
+  const stone = (w: number, h: number, d: number, x: number, y: number, z: number, c = "#7d7a72") => {
+    const m = new THREE.Mesh(roughen(new THREE.BoxGeometry(w, h, d, 2, 3, 1).toNonIndexed(), 0.06, Math.round(x * 10 + z)), mat(c));
+    m.position.set(x, y, z);
+    return m;
+  };
+  g.add(stone(3.6, 0.2, 2.6, 0, 0.1, 0, "#6e6a62"));
+  // two towers, one broken
+  const tower = (x: number, h: number, broken: boolean) => {
+    const t = new THREE.Group();
+    t.add(new THREE.Mesh(roughen(new THREE.CylinderGeometry(0.55, 0.62, h, 8, 3).toNonIndexed(), 0.06, 60 + h), mat("#7d7a72"))).children.at(-1)!.position.y = h / 2;
+    if (!broken) for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; if (i % 2) t.add(box(0.2, 0.25, 0.2, "#8a867c", Math.cos(a) * 0.5, h + 0.12, Math.sin(a) * 0.5)); }
+    t.add(box(0.14, 0.4, 0.05, "#1a1612", 0, h * 0.6, 0.6));
+    t.position.set(x, 0, -0.6);
+    return t;
+  };
+  g.add(tower(-1.3, 3.0, false));
+  g.add(tower(1.3, 1.6, true));
+  g.add(stone(2.0, 1.8, 0.45, 0, 0.9, -0.8));
+  g.add(stone(0.8, 1.0, 0.45, -1.2, 0.5, 0.8));
+  g.add(stone(0.5, 0.6, 0.45, 1.3, 0.3, 0.8));
+  g.add(box(0.6, 1.0, 0.1, "#3a2a1a", 0, 0.5, -0.56)); // old gate
+  for (let i = 0; i < 6; i++) g.add(stone(0.3, 0.2, 0.25, (hash(i, 1) - 0.5) * 3, 0.1, 0.6 + hash(i, 2) * 0.7, "#8a867c"));
+  g.add(banner(-1.3, -0.6, "#5a2a22", 3.9));
+  return g;
+}
+function chapel(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(1.4, 1.3, 2.4, "#9a958a", 0, 0.65, 0));
+  g.add(gable(1.6, 2.6, 0.9, "#4c4a46", 1.3));
+  g.add(box(0.6, 0.9, 0.6, "#9a958a", 0, 1.8, 1.0));
+  g.add(new THREE.Mesh(new THREE.ConeGeometry(0.45, 0.9, 4), mat("#4c4a46"))).children.at(-1)!.position.set(0, 2.7, 1.0);
+  g.children.at(-1)!.rotation.y = Math.PI / 4;
+  g.add(box(0.5, 0.8, 0.05, "#5a3a20", 0, 0.4, 1.21));
+  g.add(new THREE.Mesh(new THREE.CircleGeometry(0.18, 10), new THREE.MeshLambertMaterial({ color: "#c9a55a", emissive: "#4a3a10" }))).children.at(-1)!.position.set(0, 1.05, 1.21);
+  g.add(flowerBed(0.55, 1.45, 0.4));
+  return g;
+}
+function woodcutter(): THREE.Group {
+  const g = new THREE.Group();
+  for (let i = 0; i < 6; i++) { const log = cyl(0.11, 0.11, 1.6, 7, i % 2 ? "#6b4626" : "#5a3a20", 0, 0.12 + i * 0.2, -0.1); log.rotation.z = Math.PI / 2; g.add(log); }
+  for (let i = 0; i < 5; i++) { const log = cyl(0.11, 0.11, 1.3, 7, "#6b4626", -0.75, 0.12 + i * 0.2, -0.1); log.rotation.x = Math.PI / 2; g.add(log); g.add(cyl(0.11, 0.11, 1.3, 7, "#5a3a20", 0.75, 0.12 + i * 0.2, -0.1)).children.at(-1)!.rotation.x = Math.PI / 2; }
+  g.add(gableX(1.9, 1.6, 0.7, "#4a3a28", 1.1));
+  g.add(box(0.4, 0.7, 0.05, "#3a2614", 0, 0.35, 0.56));
+  const pile = new THREE.Group();
+  for (let i = 0; i < 9; i++) { const l = cyl(0.08, 0.08, 0.5, 6, "#8a6036", (i % 3) * 0.17 - 0.17, 0.08 + Math.floor(i / 3) * 0.15, 0); l.rotation.x = Math.PI / 2; pile.add(l); }
+  pile.position.set(0.95, 0, 0.6);
+  g.add(pile);
+  const stump = cyl(0.2, 0.24, 0.3, 8, "#6b4626", -0.9, 0.15, 0.75);
+  g.add(stump);
+  const axe = new THREE.Group();
+  axe.add(cyl(0.02, 0.02, 0.5, 5, "#8a6036", 0, 0.25, 0));
+  axe.add(box(0.03, 0.12, 0.16, "#9aa0a6", 0, 0.45, 0.06));
+  axe.position.set(-0.9, 0.3, 0.75);
+  axe.rotation.z = 0.3;
+  g.add(axe);
+  return g;
+}
+function windmill(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(cyl(0.55, 0.8, 2.6, 8, "#d8cba7", 0, 1.3, 0));
+  g.add(new THREE.Mesh(new THREE.ConeGeometry(0.7, 0.8, 8), mat("#7a3324"))).children.at(-1)!.position.set(0, 3.0, 0);
+  g.add(box(0.36, 0.6, 0.05, "#5a3a20", 0, 0.3, 0.78));
+  g.add(box(0.2, 0.2, 0.05, "#f0c766", 0, 1.6, 0.62, { emissive: "#6a4a10" }));
+  const sails = new THREE.Group();
+  sails.add(cyl(0.06, 0.06, 0.3, 6, "#5a3a20", 0, 0, 0)).children.at(-1)!.rotation.x = Math.PI / 2;
+  for (let i = 0; i < 4; i++) {
+    const arm = new THREE.Group();
+    arm.add(box(0.06, 1.4, 0.04, "#5a3a20", 0, 0.75, 0));
+    arm.add(box(0.36, 1.1, 0.02, "#e8e0cc", 0.2, 0.85, 0));
+    arm.rotation.z = (i * Math.PI) / 2;
+    sails.add(arm);
+  }
+  sails.position.set(0, 2.5, 0.75);
+  sails.name = "sails";
+  g.add(sails);
+  return g;
+}
+function farmhouse(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(2.4, 1.1, 1.3, "#8a3a2a", 0, 0.55, -0.1));
+  for (const x of [-1.2, 1.2]) g.add(box(0.08, 1.1, 0.06, "#efe6d0", x, 0.55, 0.56));
+  g.add(gableX(2.7, 1.6, 0.9, "#4c4a46", 1.1));
+  g.add(box(0.7, 0.85, 0.05, "#efe6d0", -0.5, 0.42, 0.56));
+  g.add(box(0.6, 0.75, 0.04, "#5a3a20", -0.5, 0.38, 0.58));
+  g.add(box(0.36, 0.3, 0.05, "#f0c766", 0.65, 0.7, 0.56, { emissive: "#6a4a10" }));
+  for (let i = 0; i < 3; i++) { const bale = cyl(0.26, 0.26, 0.4, 10, "#d4b25a", 1.25 - i * 0.55, 0.26, 0.95); bale.rotation.z = Math.PI / 2; g.add(bale); }
+  g.add(cyl(0.18, 0.15, 0.3, 8, "#6b4626", -1.3, 0.15, 0.9));
+  return g;
+}
+function fisherHut(): THREE.Group {
+  const g = new THREE.Group();
+  for (const x of [-0.7, 0.7]) for (const z of [-0.6, 0.6]) g.add(box(0.08, 0.5, 0.08, "#4a3a28", x, 0.25, z));
+  g.add(box(1.6, 0.08, 1.4, "#6b4626", 0, 0.5, 0));
+  g.add(box(1.3, 0.9, 1.1, "#7a6a54", 0, 0.98, -0.05));
+  g.add(gableX(1.6, 1.4, 0.55, "#4c4a46", 1.42));
+  g.add(box(0.36, 0.6, 0.05, "#3a2614", 0, 0.82, 0.51));
+  for (let i = 0; i < 6; i++) g.add(box(0.02, 0.5, 0.02, "#c9b48a", -0.75 + i * 0.3, 0.75, 0.75));
+  g.add(box(1.7, 0.02, 0.02, "#c9b48a", 0, 1.0, 0.75));
+  const net = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.45), new THREE.MeshLambertMaterial({ color: "#b9a888", transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+  net.position.set(0, 0.8, 0.76);
+  g.add(net);
+  for (const x of [0.95, 1.2]) g.add(cyl(0.14, 0.14, 0.32, 8, "#5a3a20", x, 0.16, 0.3));
+  return g;
+}
+export function makeLandmark(id: string): THREE.Group {
+  switch (id) {
+    case "keep": return keepRuins();
+    case "chapel": return chapel();
+    case "woodcutter": return woodcutter();
+    case "windmill": return windmill();
+    case "farmhouse": return farmhouse();
+    default: return fisherHut();
+  }
+}
+export function makeBoat(): THREE.Group {
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.22, 1.3, 8, 1, false, Math.PI / 2, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), mat("#6b4626"));
+  hull.scale.set(1, 0.7, 1);
+  g.add(hull);
+  g.add(box(0.5, 0.04, 0.12, "#8a6036", 0, 0.02, 0.1));
+  const oar = box(0.03, 0.03, 1.0, "#8a6036", 0.3, 0.05, 0);
+  oar.rotation.y = 0.5;
+  g.add(oar);
+  return g;
+}
