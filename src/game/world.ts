@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { SK, type Habit } from "./data";
 import { COLS, ROWS, START, STATIONS, blocked, cell, findPath, isWater, stationAt, type Pt, type Station } from "./map";
 import { CHIMNEYS, hash, makeBridge, makeCharacter, makeStation, mat, natureGeo, type CharacterRig } from "./models";
+import { WANDERERS, type Wanderer } from "./wanderers";
 
 export { STATIONS, habitsAtStation, type Station } from "./map";
 
@@ -22,6 +23,21 @@ export interface WorldCallbacks {
   closeMenu(): void;
   /** A rep finished animating. Return how many skills levelled up (one burst each). */
   actionDone(h: Habit): number;
+  /** Player reached a wanderer and started talking. */
+  openDialogue(w: Wanderer): void;
+}
+
+interface Npc {
+  w: Wanderer;
+  rig: CharacterRig;
+  x: number; y: number; px: number; py: number;
+  path: Pt[];
+  face: number;
+  walkT: number;
+  wait: number;
+  talking: boolean;
+  bark: { text: string; t: number } | null;
+  nextBark: number;
 }
 
 interface Drop { text: string; ico: string; t: number; neg: boolean }
@@ -202,13 +218,14 @@ export class World {
   private water: THREE.Mesh;
   private stationGroups: THREE.Group[] = [];
   private rig: CharacterRig;
+  private npcs: Npc[] = [];
   private smoke: { mesh: THREE.Mesh; t: number; ox: number; oy: number; oz: number }[] = [];
   private hud: CanvasRenderingContext2D;
   private hudCv: HTMLCanvasElement;
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean }, actionT: 0, pendingStation: null as Station | null };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean }, actionT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
@@ -262,6 +279,13 @@ export class World {
     });
     this.rig = makeCharacter();
     sc.add(this.rig.root);
+    WANDERERS.forEach((w, i) => {
+      const rig = makeCharacter(w.look);
+      rig.root.userData.npc = w.id;
+      sc.add(rig.root);
+      const [hx, hy] = w.home;
+      this.npcs.push({ w, rig, x: hx, y: hy, px: hx, py: hy, path: [], face: hash(i, 3) * 6.28, walkT: 0, wait: 1 + hash(i, 5) * 4, talking: false, bark: null, nextBark: 6 + hash(i, 8) * 20 });
+    });
     this.minimap = this.buildMinimap();
 
     hudCanvas.addEventListener("pointerdown", this.onDown);
@@ -301,12 +325,13 @@ export class World {
     return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
   /** What is under a point in view coordinates: a station, or a ground tile. */
-  private pick(vx: number, vy: number): { station?: Station; tile?: Pt; point?: THREE.Vector3 } {
+  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; tile?: Pt; point?: THREE.Vector3 } {
     this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
-    const hit = this.ray.intersectObjects([...this.stationGroups, this.terrain], true)[0];
+    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, this.terrain], true)[0];
     if (!hit) return {};
     let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.station) o = o.parent;
+    while (o && !o.userData.station && !o.userData.npc) o = o.parent;
+    if (o?.userData.npc) return { npc: this.npcs.find((n) => n.w.id === o!.userData.npc), point: hit.point };
     if (o) return { station: o.userData.station as Station, point: hit.point };
     const tx = Math.floor(hit.point.x),
       ty = Math.floor(hit.point.z);
@@ -441,6 +466,21 @@ export class World {
       ctx.fillStyle = "#f2e6c4";
       ctx.fillText(lab, p.x, p.y + 10);
     });
+    // overhead lines from wanderers
+    ctx.font = "bold 12px 'Alegreya Sans', Georgia, serif";
+    ctx.textAlign = "center";
+    this.npcs.forEach((n) => {
+      if (!n.bark) return;
+      const r = n.rig.root.position;
+      const p = this.project(r.x, r.y + 1.45, r.z);
+      if (p.behind || p.x < 0 || p.x > VIEW_W || p.y < 0 || p.y > VIEW_H) return;
+      ctx.globalAlpha = Math.min(1, (4 - n.bark.t) / 0.5);
+      ctx.fillStyle = "#000";
+      ctx.fillText(n.bark.text, p.x + 1, p.y + 1);
+      ctx.fillStyle = "#f2e04a";
+      ctx.fillText(n.bark.text, p.x, p.y);
+      ctx.globalAlpha = 1;
+    });
     // click markers
     this.markers.forEach((m) => {
       const p = this.project(m.x, groundAt(m.x, m.z) + 0.05, m.z);
@@ -486,7 +526,10 @@ export class World {
       if (this.inCompass(this.hover.x, this.hover.y)) verb = "Face North";
       else {
         const p = this.pick(this.hover.x, this.hover.y);
-        if (p.station) {
+        if (p.npc) {
+          verb = "Talk-to";
+          name = " " + p.npc.w.name;
+        } else if (p.station) {
           verb = p.station.verb[0].toUpperCase() + p.station.verb.slice(1);
           name = " " + p.station.name;
         } else if (p.tile && !blocked[p.tile[1]]?.[p.tile[0]]) verb = "Walk here";
@@ -501,7 +544,7 @@ export class World {
           ctx.fillText(s, x, 18);
         };
         t(verb, 8, "#ffffff");
-        if (name) t(name, 8 + ctx.measureText(verb).width, "#5fe0e0");
+        if (name) t(name, 8 + ctx.measureText(verb).width, verb === "Talk-to" ? "#f2e04a" : "#5fe0e0");
       }
     }
     void now;
@@ -538,6 +581,13 @@ export class World {
           this.faceStation(s);
           this.cb.openStation(s, this.stationScreenPos(s));
         }
+        if (!P.path.length && P.pendingNpc) {
+          const n = P.pendingNpc;
+          P.pendingNpc = null;
+          P.face = Math.atan2(n.px - P.x, n.py - P.y);
+          n.face = Math.atan2(P.x - n.px, P.y - n.py);
+          this.cb.openDialogue(n.w);
+        }
       } else {
         P.px += (dx / dist) * speed * dt;
         P.py += (dy / dist) * speed * dt;
@@ -547,23 +597,16 @@ export class World {
       P.actionT += dt;
       if (P.actionT >= 1.4) this.finishAction();
     }
+    this.updateNpcs(dt);
     // character pose
     const wx = P.px + 0.5,
       wz = P.py + 0.5;
-    rig.root.position.set(wx, standY(wx, wz), wz);
-    let d = P.face - rig.root.rotation.y;
-    d = Math.atan2(Math.sin(d), Math.cos(d));
-    rig.root.rotation.y += d * Math.min(1, dt * 12);
-    const sw = walking ? Math.sin(P.walkT * 11) * 0.7 : 0;
-    rig.legL.rotation.x = sw;
-    rig.legR.rotation.x = -sw;
-    rig.armL.rotation.x = -sw * 0.8;
+    const sw = this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
     rig.pick.visible = !!P.action && !P.action.neg;
     rig.mug.visible = !!P.action && P.action.neg;
     if (P.action && !P.action.neg) rig.armR.rotation.x = -1.6 - Math.cos(P.actionT * 9) * 1.0;
     else if (P.action) rig.armR.rotation.x = -1.2 - Math.max(0, Math.sin(P.actionT * 4)) * 1.2;
     else rig.armR.rotation.x = sw * 0.8;
-    rig.root.position.y += walking ? Math.abs(Math.sin(P.walkT * 11)) * 0.03 : 0;
     // camera follows the player
     const k = 1 - Math.pow(0.002, dt);
     this.cam.tx += (wx - this.cam.tx) * k;
@@ -607,6 +650,98 @@ export class World {
     this.drawHud(now);
     this.raf = requestAnimationFrame(this.loop);
   };
+
+  /** Place a rig, turn it toward `face`, and swing its limbs. Returns the swing value. */
+  private pose(rig: CharacterRig, wx: number, wz: number, face: number, walking: boolean, walkT: number, dt: number, cadence: number) {
+    rig.root.position.set(wx, standY(wx, wz) + (walking ? Math.abs(Math.sin(walkT * cadence)) * 0.025 : 0), wz);
+    let d = face - rig.root.rotation.y;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    rig.root.rotation.y += d * Math.min(1, dt * 10);
+    const sw = walking ? Math.sin(walkT * cadence) * 0.6 : 0;
+    rig.legL.rotation.x = sw;
+    rig.legR.rotation.x = -sw;
+    rig.armL.rotation.x = -sw * 0.7;
+    rig.armR.rotation.x = sw * 0.7;
+    rig.head.rotation.y = walking ? 0 : Math.sin(walkT * 0.7) * 0.25;
+    return sw;
+  }
+  private updateNpcs(dt: number) {
+    for (const n of this.npcs) {
+      let walking = false;
+      if (!n.talking) {
+        if (n.path.length) {
+          walking = true;
+          n.walkT += dt;
+          const [nx, ny] = n.path[0];
+          const dx = nx - n.px,
+            dy = ny - n.py,
+            dist = Math.hypot(dx, dy),
+            speed = 1.7;
+          if (dist > 0.001) n.face = Math.atan2(dx, dy);
+          if (dist <= speed * dt) {
+            n.px = nx; n.py = ny; n.x = nx; n.y = ny;
+            n.path.shift();
+            if (!n.path.length) n.wait = 2 + Math.random() * 5;
+          } else {
+            n.px += (dx / dist) * speed * dt;
+            n.py += (dy / dist) * speed * dt;
+          }
+        } else if ((n.wait -= dt) <= 0) {
+          const [hx, hy] = n.w.home;
+          for (let tries = 0; tries < 8; tries++) {
+            const tx = hx + Math.round((Math.random() * 2 - 1) * n.w.radius),
+              ty = hy + Math.round((Math.random() * 2 - 1) * n.w.radius);
+            if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || blocked[ty][tx]) continue;
+            const path = findPath(n.x, n.y, tx, ty);
+            if (path && path.length && path.length <= n.w.radius * 3) {
+              n.path = path;
+              break;
+            }
+          }
+          n.wait = 1.5;
+        }
+      } else n.walkT += dt;
+      if (n.bark) {
+        n.bark.t += dt;
+        if (n.bark.t > 4) n.bark = null;
+      } else if ((n.nextBark -= dt) <= 0) {
+        n.bark = { text: n.w.barks[Math.floor(Math.random() * n.w.barks.length)], t: 0 };
+        n.nextBark = 18 + Math.random() * 25;
+      }
+      this.pose(n.rig, n.px + 0.5, n.py + 0.5, n.face, walking, n.walkT, dt, 8);
+    }
+  }
+  /** Called by React when a conversation closes. */
+  endTalk() {
+    this.npcs.forEach((n) => (n.talking = false));
+  }
+  private goToNpc(n: Npc) {
+    const P = this.P;
+    n.path = [];
+    n.talking = true;
+    const opts: Pt[] = [[n.x, n.y + 1], [n.x, n.y - 1], [n.x + 1, n.y], [n.x - 1, n.y]];
+    let best: Pt[] | null = null;
+    for (const [tx, ty] of opts) {
+      if (tx === P.x && ty === P.y) { best = []; break; }
+      if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || blocked[ty][tx]) continue;
+      const path = findPath(P.x, P.y, tx, ty);
+      if (path && (!best || path.length < best.length)) best = path;
+    }
+    if (!best) {
+      n.talking = false;
+      this.cb.chat(`You can't reach ${n.w.name}.`, "sys");
+      return;
+    }
+    P.path = best;
+    P.pendingStation = null;
+    P.pendingNpc = n;
+    if (!best.length) {
+      P.pendingNpc = null;
+      P.face = Math.atan2(n.px - P.x, n.py - P.y);
+      n.face = Math.atan2(P.x - n.px, P.y - n.py);
+      this.cb.openDialogue(n.w);
+    }
+  }
 
   // ---------------- input ----------------
   private onDown = (e: PointerEvent) => {
@@ -671,6 +806,10 @@ export class World {
     const v = this.viewPos(e);
     if (this.P.action || this.inMinimap(v.x, v.y)) return;
     const p = this.pick(v.x, v.y);
+    if (p.npc) {
+      this.goToNpc(p.npc);
+      return;
+    }
     if (p.station) {
       this.goToStation(p.station);
       return;
@@ -700,6 +839,12 @@ export class World {
       return;
     }
     const p = this.pick(v.x, v.y);
+    this.endTalk();
+    if (p.npc) {
+      if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
+      this.goToNpc(p.npc);
+      return;
+    }
     if (p.station) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
       this.goToStation(p.station);
@@ -726,6 +871,7 @@ export class World {
     }
     P.path = path;
     P.pendingStation = null;
+    P.pendingNpc = null;
   }
   private faceStation(s: Station) {
     const P = this.P;
@@ -745,6 +891,7 @@ export class World {
     }
     P.path = path;
     P.pendingStation = s;
+    P.pendingNpc = null;
     this.cb.chat("You walk to the " + s.name.toLowerCase() + ".", "sys");
   }
   private onKeyDown = (e: KeyboardEvent) => {

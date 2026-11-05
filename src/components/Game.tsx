@@ -6,6 +6,8 @@ import { Sync, loadLocal, type SyncStatus } from "../lib/persistence";
 import { FuturePane } from "./FuturePane";
 import { HabitsPane, dayLabel } from "./HabitsPane";
 import { GroundMenu, StationMenu } from "./StationMenu";
+import { Dialogue } from "./Dialogue";
+import type { Wanderer } from "../game/wanderers";
 import { StatsPane } from "./StatsPane";
 
 type Tab = "stats" | "future" | "habits";
@@ -22,6 +24,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [sync, setSync] = useState<SyncStatus>("loading");
   const [lines, setLines] = useState<Line[]>([]);
   const [menu, setMenu] = useState<{ s: Station; pos: { x: number; y: number } } | null>(null);
+  const [talking, setTalking] = useState<Wanderer | null>(null);
   const [groundMenu, setGroundMenu] = useState<{ tile: [number, number]; pos: { x: number; y: number } } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -105,6 +108,13 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
       closeMenu: () => {
         setMenu(null);
         setGroundMenu(null);
+        setTalking(null);
+      },
+      openDialogue: (w) => {
+        setMenu(null);
+        setGroundMenu(null);
+        setTalking(w);
+        chat(`You talk to ${w.name} ${w.title}.`, "sys");
       },
       actionDone: (h) => {
         const day = viewDayRef.current;
@@ -218,7 +228,18 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
           <div style={{ position: "relative" }}>
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
-            <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Click the compass to face north.</div>
+            <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Click a wanderer to talk.</div>
+            {talking && (
+              <Dialogue
+                w={talking}
+                state={state}
+                c={c}
+                onClose={() => {
+                  setTalking(null);
+                  worldRef.current?.endTalk();
+                }}
+              />
+            )}
             {groundMenu && canvasRef.current && (
               <GroundMenu
                 pos={groundMenu.pos}

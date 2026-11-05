@@ -92,62 +92,161 @@ const C = {
   skin: "#c99a72", tunic: "#3c5a8c", trousers: "#3a3328", hair: "#4a2e18", boot: "#2b2119",
 };
 
-// ---------------- character ----------------
+// ---------------- characters ----------------
+// Smooth-shaded, rounded low-poly figures. The player and every wanderer use
+// the same rig with a different Look.
+export interface Look {
+  skin: string;
+  top: string; // tunic / shirt
+  bottom: string; // trousers
+  hair: string;
+  boots?: string;
+  hairStyle?: "short" | "long" | "bun" | "bald";
+  hat?: { kind: "brim" | "hood" | "cap" | "scarf"; color: string };
+  beard?: string;
+  robe?: string; // long robe instead of trousers
+  apron?: string;
+  belt?: string;
+  staff?: boolean;
+  satchel?: string;
+  scale?: number;
+}
+export const PLAYER_LOOK: Look = { skin: "#c99a72", top: "#3c5a8c", bottom: "#3a3328", hair: "#4a2e18", belt: "#3a2614" };
+
+const smooth = new Map<string, THREE.Material>();
+function sm(color: string): THREE.Material {
+  let m = smooth.get(color);
+  if (!m) {
+    m = new THREE.MeshLambertMaterial({ color });
+    smooth.set(color, m);
+  }
+  return m;
+}
+function part(geo: THREE.BufferGeometry, color: string, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(geo, sm(color));
+  m.position.set(x, y, z);
+  return m;
+}
+
 export interface CharacterRig {
   root: THREE.Group;
+  body: THREE.Group;
   legL: THREE.Group;
   legR: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
+  head: THREE.Group;
   pick: THREE.Group;
   mug: THREE.Group;
 }
-export function makeCharacter(): CharacterRig {
+
+export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   const root = new THREE.Group();
-  const limb = (x: number, y: number, w: number, h: number, color: string, end: string) => {
+  const body = new THREE.Group();
+  root.add(body);
+  const boots = look.boots ?? "#2b2119";
+
+  const leg = (x: number) => {
     const g = new THREE.Group();
-    g.position.set(x, y, 0);
-    g.add(box(w, h, w * 1.1, color, 0, -h / 2, 0));
-    g.add(box(w * 1.05, 0.1, w * 1.25, end, 0, -h - 0.02, end === C.boot ? 0.03 : 0));
-    root.add(g);
+    g.position.set(x, 0.5, 0);
+    g.add(part(new THREE.CapsuleGeometry(0.068, 0.3, 3, 8), look.bottom, 0, -0.2, 0));
+    g.add(part(new THREE.CapsuleGeometry(0.072, 0.07, 3, 8).rotateX(Math.PI / 2), boots, 0, -0.43, 0.035));
+    body.add(g);
     return g;
   };
-  const legL = limb(-0.09, 0.47, 0.14, 0.4, C.trousers, C.boot);
-  const legR = limb(0.09, 0.47, 0.14, 0.4, C.trousers, C.boot);
-  root.add(box(0.38, 0.44, 0.22, C.tunic, 0, 0.68, 0));
-  root.add(box(0.4, 0.06, 0.24, C.woodDk, 0, 0.52, 0)); // belt
-  root.add(box(0.06, 0.05, 0.02, C.gold, 0, 0.52, 0.125)); // buckle
-  root.add(box(0.3, 0.1, 0.24, "#33507e", 0, 0.88, 0)); // collar
-  const armL = limb(-0.25, 0.88, 0.11, 0.4, C.tunic, C.skin);
-  const armR = limb(0.25, 0.88, 0.11, 0.4, C.tunic, C.skin);
+  const legL = leg(-0.085),
+    legR = leg(0.085);
+
+  // torso: tapered, rounded at the shoulders
+  body.add(part(new THREE.CylinderGeometry(0.17, 0.15, 0.4, 12), look.top, 0, 0.7, 0));
+  body.add(part(new THREE.SphereGeometry(0.17, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 0.45, 0.85), look.top, 0, 0.9, 0));
+  body.children.slice(-2).forEach((m) => m.scale.set(1, 1, 0.78)); // flatten front-to-back
+  if (look.robe) {
+    body.add(part(new THREE.CylinderGeometry(0.16, 0.26, 0.5, 12), look.robe, 0, 0.3, 0));
+  }
+  if (look.apron) body.add(part(new THREE.CylinderGeometry(0.15, 0.2, 0.42, 10, 1, true, -0.9, 1.8), look.apron, 0, 0.45, 0.005));
+  if (look.belt) {
+    const b = part(new THREE.TorusGeometry(0.155, 0.022, 5, 14).rotateX(Math.PI / 2), look.belt, 0, 0.53, 0);
+    b.scale.set(1, 1, 0.8);
+    body.add(b);
+  }
+  if (look.satchel) {
+    body.add(part(new THREE.BoxGeometry(0.16, 0.14, 0.07), look.satchel, -0.2, 0.55, 0.06));
+    const strap = part(new THREE.TorusGeometry(0.2, 0.012, 4, 16, Math.PI), look.satchel, -0.05, 0.75, 0);
+    strap.rotation.set(0, Math.PI / 2, -0.6);
+    body.add(strap);
+  }
+
+  const arm = (x: number) => {
+    const g = new THREE.Group();
+    g.position.set(x, 0.86, 0);
+    g.add(part(new THREE.CapsuleGeometry(0.055, 0.3, 3, 8), look.top, 0, -0.17, 0));
+    g.add(part(new THREE.SphereGeometry(0.055, 8, 6), look.skin, 0, -0.39, 0));
+    body.add(g);
+    return g;
+  };
+  const armL = arm(-0.225),
+    armR = arm(0.225);
+
   // head
-  root.add(box(0.26, 0.27, 0.25, C.skin, 0, 1.06, 0));
-  root.add(box(0.29, 0.1, 0.28, C.hair, 0, 1.22, -0.01));
-  root.add(box(0.29, 0.22, 0.08, C.hair, 0, 1.11, -0.12));
-  root.add(box(0.04, 0.04, 0.02, "#1a1410", -0.06, 1.07, 0.127));
-  root.add(box(0.04, 0.04, 0.02, "#1a1410", 0.06, 1.07, 0.127));
-  root.add(box(0.04, 0.05, 0.04, "#b5845e", 0, 1.02, 0.14));
-  // tools, held in the right hand
+  const head = new THREE.Group();
+  head.position.set(0, 1.08, 0);
+  body.add(head);
+  body.add(part(new THREE.CylinderGeometry(0.05, 0.06, 0.08, 8), look.skin, 0, 0.95, 0));
+  head.add(part(new THREE.SphereGeometry(0.135, 14, 10).scale(0.95, 1.05, 1), look.skin));
+  head.add(part(new THREE.SphereGeometry(0.03, 6, 4), look.skin, 0, -0.01, 0.13)); // nose
+  for (const x of [-0.05, 0.05]) head.add(part(new THREE.SphereGeometry(0.017, 6, 4), "#1a1410", x, 0.025, 0.118));
+  for (const x of [-0.135, 0.135]) head.add(part(new THREE.SphereGeometry(0.03, 6, 4).scale(0.6, 1, 1), look.skin, x, 0, 0));
+  const style = look.hairStyle ?? "short";
+  if (style !== "bald") {
+    head.add(part(new THREE.SphereGeometry(0.145, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), look.hair, 0, 0.012, -0.012));
+    head.add(part(new THREE.SphereGeometry(0.14, 12, 8, Math.PI * 0.15, Math.PI * 0.7, Math.PI * 0.35, Math.PI * 0.45).rotateY(Math.PI), look.hair, 0, 0.0, -0.01));
+  }
+  if (style === "long") head.add(part(new THREE.CapsuleGeometry(0.12, 0.18, 3, 10).scale(1.05, 1, 0.55), look.hair, 0, -0.14, -0.07));
+  if (style === "bun") head.add(part(new THREE.SphereGeometry(0.07, 10, 8), look.hair, 0, 0.1, -0.13));
+  if (look.beard) head.add(part(new THREE.SphereGeometry(0.11, 10, 8, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55).scale(1, 1.25, 0.9), look.beard, 0, -0.02, 0.035));
+  if (look.hat) {
+    const c = look.hat.color;
+    if (look.hat.kind === "brim") {
+      head.add(part(new THREE.CylinderGeometry(0.25, 0.25, 0.025, 16), c, 0, 0.1, 0));
+      head.add(part(new THREE.CylinderGeometry(0.11, 0.14, 0.14, 14), c, 0, 0.18, 0));
+    } else if (look.hat.kind === "hood") {
+      head.add(part(new THREE.SphereGeometry(0.17, 14, 10, -Math.PI * 0.85, Math.PI * 1.7).scale(1, 1.1, 1.05), c, 0, 0.01, -0.01));
+    } else if (look.hat.kind === "cap") {
+      head.add(part(new THREE.SphereGeometry(0.15, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.45), c, 0, 0.03, 0));
+      head.add(part(new THREE.CylinderGeometry(0.1, 0.1, 0.015, 12, 1, false, -Math.PI / 2, Math.PI), c, 0, 0.05, 0.11));
+    } else {
+      head.add(part(new THREE.SphereGeometry(0.15, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6), c, 0, 0.015, -0.005));
+    }
+  }
+
+  // held items (right hand)
   const pick = new THREE.Group();
-  pick.add(cyl(0.02, 0.02, 0.55, 5, C.woodLt, 0, 0.18, 0));
-  const head = box(0.36, 0.06, 0.06, "#8d939a", 0, 0.45, 0);
-  pick.add(head);
-  pick.position.set(0, -0.45, 0.04);
+  pick.add(part(new THREE.CylinderGeometry(0.018, 0.022, 0.55, 6), "#7a5533", 0, 0.18, 0));
+  pick.add(part(new THREE.CapsuleGeometry(0.03, 0.3, 2, 6).rotateZ(Math.PI / 2), "#8d939a", 0, 0.45, 0));
+  pick.position.set(0, -0.4, 0.04);
   pick.rotation.x = Math.PI / 2;
   armR.add(pick);
   const mug = new THREE.Group();
-  mug.add(cyl(0.07, 0.065, 0.16, 7, "#8a6036", 0, 0, 0));
-  mug.add(cyl(0.065, 0.065, 0.02, 7, "#efe6cc", 0, 0.08, 0));
-  mug.add(box(0.03, 0.09, 0.03, "#6b4626", 0.09, 0, 0));
-  mug.position.set(0, -0.48, 0.06);
+  mug.add(part(new THREE.CylinderGeometry(0.065, 0.06, 0.15, 10), "#8a6036"));
+  mug.add(part(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 10), "#efe6cc", 0, 0.075, 0));
+  mug.add(part(new THREE.TorusGeometry(0.04, 0.012, 4, 8, Math.PI), "#6b4626", 0.065, 0, 0).rotateZ(-Math.PI / 2));
+  mug.position.set(0, -0.44, 0.06);
   armR.add(mug);
   pick.visible = mug.visible = false;
+  if (look.staff) {
+    const st = part(new THREE.CylinderGeometry(0.02, 0.025, 1.3, 6), "#6b4a2a", 0, -0.2, 0.05);
+    armL.add(st);
+    armL.add(part(new THREE.SphereGeometry(0.045, 8, 6), "#8a6a40", 0, 0.45, 0.05));
+  }
+
   // blob shadow
-  const sh = new THREE.Mesh(new THREE.CircleGeometry(0.28, 12), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.28, depthWrite: false }));
+  const sh = new THREE.Mesh(new THREE.CircleGeometry(0.26, 16), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.28, depthWrite: false }));
   sh.rotation.x = -Math.PI / 2;
   sh.position.y = 0.02;
   root.add(sh);
-  return { root, legL, legR, armL, armR, pick, mug };
+  if (look.scale) body.scale.setScalar(look.scale);
+  return { root, body, legL, legR, armL, armR, head, pick, mug };
 }
 
 // ---------------- nature (instanced) ----------------
