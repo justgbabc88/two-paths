@@ -4,8 +4,9 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, ROWS, START, STATIONS, blocked, cell, findPath, isWater, stationAt, stationIcon, type Pt, type Station } from "./map";
-import { CHIMNEYS, hash, makeBridge, makeCharacter, makeStation, mat, natureGeo, type CharacterRig } from "./models";
+import { COLS, FORK, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, stationAt, stationIcon, type Pt, type Station, type StationId } from "./map";
+import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
+import { CHIMNEYS, buildStation, hash, makeBridge, makeCharacter, makeCloud, makeFork, mat, natureGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
@@ -27,6 +28,8 @@ export interface WorldCallbacks {
   actionDone(h: Habit): number;
   /** Player reached a wanderer and started talking. */
   openDialogue(w: Wanderer): void;
+  /** Player reached the Fork. */
+  openFork(): void;
 }
 
 interface Npc {
@@ -219,6 +222,14 @@ export class World {
   private terrain: THREE.Mesh;
   private water: THREE.Mesh;
   private stationGroups: THREE.Group[] = [];
+  private stationKeys = new Map<StationId, string>();
+  private spinners: THREE.Object3D[] = [];
+  private fork!: THREE.Group;
+  private cloud!: THREE.Group;
+  private look: WorldLook | null = null;
+  private playerKey = "";
+  private hemi!: THREE.HemisphereLight;
+  private sun!: THREE.DirectionalLight;
   private rig: CharacterRig;
   private npcs: Npc[] = [];
   private smoke: { mesh: THREE.Mesh; t: number; ox: number; oy: number; oz: number }[] = [];
@@ -227,7 +238,7 @@ export class World {
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
@@ -256,10 +267,11 @@ export class World {
     const sc = this.scene;
     sc.background = new THREE.Color(FOG);
     sc.fog = new THREE.Fog(FOG, 13, 30);
-    sc.add(new THREE.HemisphereLight("#dfe6ea", "#4d4330", 1.6));
-    const sun = new THREE.DirectionalLight("#fff0d2", 2.0);
-    sun.position.set(-6, 10, 4);
-    sc.add(sun);
+    this.hemi = new THREE.HemisphereLight("#dfe6ea", "#4d4330", 1.6);
+    sc.add(this.hemi);
+    this.sun = new THREE.DirectionalLight("#fff0d2", 2.0);
+    this.sun.position.set(-6, 10, 4);
+    sc.add(this.sun);
 
     this.terrain = buildTerrain();
     sc.add(this.terrain);
@@ -267,11 +279,7 @@ export class World {
     sc.add(this.water);
     buildNature(sc);
     STATIONS.forEach((s) => {
-      const g = makeStation(s.id);
-      g.position.set(s.x + s.w / 2, stationBase.get(s.id)!, s.y + s.h / 2);
-      g.userData.station = s;
-      sc.add(g);
-      this.stationGroups.push(g);
+      const g = this.placeStation(s, { tier: 0, neglect: 0, vice: 0 });
       const ch = CHIMNEYS[s.id];
       if (ch)
         for (let i = 0; i < 4; i++) {
@@ -282,6 +290,13 @@ export class World {
     });
     this.rig = makeCharacter();
     sc.add(this.rig.root);
+    this.fork = makeFork();
+    this.fork.position.set(FORK.x + FORK.w / 2, groundAt(FORK.x + FORK.w / 2, FORK.y + 0.5), FORK.y + 0.5);
+    this.fork.userData.fork = true;
+    sc.add(this.fork);
+    this.cloud = makeCloud();
+    this.cloud.visible = false;
+    sc.add(this.cloud);
     WANDERERS.forEach((w, i) => {
       const rig = makeCharacter(w.look);
       rig.root.userData.npc = w.id;
@@ -318,6 +333,64 @@ export class World {
     this.renderer.dispose();
   }
 
+  // ---------------- living village ----------------
+  private placeStation(s: Station, a: { tier: number; neglect: number; vice: number }) {
+    const g = buildStation(s.id, a, s.w, s.h);
+    g.position.set(s.x + s.w / 2, stationBase.get(s.id)!, s.y + s.h / 2);
+    g.userData.station = s;
+    const i = this.stationGroups.findIndex((x) => x.userData.station === s);
+    if (i >= 0) {
+      this.scene.remove(this.stationGroups[i]);
+      this.stationGroups[i] = g;
+    } else this.stationGroups.push(g);
+    this.scene.add(g);
+    this.spinners = [];
+    this.stationGroups.forEach((sg) => sg.traverse((o) => o.name === "spin" && this.spinners.push(o)));
+    return g;
+  }
+  /** Rebuild whatever changed so the village (and you) match `look`. */
+  applyLook(look: WorldLook) {
+    this.look = look;
+    for (const s of STATIONS) {
+      const a = look.stations[s.id];
+      const key = `${a.tier}/${a.neglect}/${a.vice}`;
+      if (this.stationKeys.get(s.id) === key) continue;
+      this.stationKeys.set(s.id, key);
+      this.placeStation(s, a);
+    }
+    const pk = JSON.stringify(look.player.look);
+    if (pk !== this.playerKey) {
+      this.playerKey = pk;
+      const old = this.rig.root;
+      const rig = makeCharacter(look.player.look);
+      rig.root.position.copy(old.position);
+      rig.root.rotation.copy(old.rotation);
+      this.scene.remove(old);
+      this.scene.add(rig.root);
+      this.rig = rig;
+    }
+    this.cloud.visible = look.player.cloud;
+    this.setMood(look.mood);
+  }
+  private mood: Mood = "today";
+  private setMood(m: Mood) {
+    if (m !== this.mood) {
+      // pull the camera back when looking into the future, restore it on return
+      if (m !== "today" && this.mood === "today") this.cam.dist = Math.max(this.cam.dist, 15);
+      if (m === "today" && this.mood !== "today") this.cam.dist = 11;
+      this.mood = m;
+    }
+    const fog = m === "keep" ? "#a9b6a8" : m === "slide" ? "#4c5256" : FOG;
+    (this.scene.background as THREE.Color).set(fog);
+    const f = this.scene.fog as THREE.Fog;
+    f.color.set(fog);
+    f.near = m === "slide" ? 11 : m === "keep" ? 16 : 13;
+    f.far = m === "slide" ? 27 : m === "keep" ? 36 : 30;
+    this.hemi.intensity = m === "slide" ? 1.0 : m === "keep" ? 1.9 : 1.6;
+    this.sun.color.set(m === "keep" ? "#ffe2a8" : m === "slide" ? "#b8bcc4" : "#fff0d2");
+    this.sun.intensity = m === "slide" ? 0.9 : m === "keep" ? 2.4 : 2.0;
+  }
+
   // ---------------- helpers ----------------
   private project(x: number, y: number, z: number) {
     const v = new THREE.Vector3(x, y, z).project(this.camera);
@@ -328,12 +401,13 @@ export class World {
     return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
   /** What is under a point in view coordinates: a station, or a ground tile. */
-  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; tile?: Pt; point?: THREE.Vector3 } {
+  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; tile?: Pt; point?: THREE.Vector3 } {
     this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
-    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, this.terrain], true)[0];
+    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, this.fork, this.terrain], true)[0];
     if (!hit) return {};
     let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.station && !o.userData.npc) o = o.parent;
+    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork) o = o.parent;
+    if (o?.userData.fork || isFork(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { fork: true, point: hit.point };
     if (o?.userData.npc) return { npc: this.npcs.find((n) => n.w.id === o!.userData.npc), point: hit.point };
     if (o) return { station: o.userData.station as Station, point: hit.point };
     const tx = Math.floor(hit.point.x),
@@ -462,13 +536,27 @@ export class World {
       const g = this.stationGroups.find((g) => g.userData.station === s)!;
       const p = this.project(g.position.x, g.position.y, g.position.z + s.h / 2 + 0.15);
       if (p.behind || p.x < -40 || p.x > VIEW_W + 40 || p.y < -20 || p.y > VIEW_H + 20) return;
-      const lab = stationIcon(s) + " " + s.name;
+      const a = this.look?.stations[s.id];
+      const name = s.skill && a ? TIER_NAMES[s.skill][a.tier] : s.name;
+      const lab = stationIcon(s) + " " + name + (a?.level ? " · " + a.level : "") + (a && a.neglect >= 2 ? " (rusting)" : "");
       const tw = ctx.measureText(lab).width + 8;
       ctx.fillStyle = "rgba(0,0,0,.5)";
       ctx.fillRect(p.x - tw / 2, p.y, tw, 13);
       ctx.fillStyle = "#f2e6c4";
       ctx.fillText(lab, p.x, p.y + 10);
     });
+    // the Fork's label
+    {
+      const p = this.project(this.fork.position.x, this.fork.position.y + 2.6, this.fork.position.z);
+      if (!p.behind) {
+        const lab = this.look && this.look.mood !== "today" ? `${this.look.year} · ${this.look.mood === "keep" ? "Kept going" : "Let it slide"}` : "⑂ The Fork";
+        const tw = ctx.measureText(lab).width + 8;
+        ctx.fillStyle = "rgba(0,0,0,.55)";
+        ctx.fillRect(p.x - tw / 2, p.y - 10, tw, 13);
+        ctx.fillStyle = this.look?.mood === "slide" ? "#c9cdd2" : "#f5d27a";
+        ctx.fillText(lab, p.x, p.y);
+      }
+    }
     // overhead lines from wanderers
     ctx.font = "bold 12px 'Alegreya Sans', Georgia, serif";
     ctx.textAlign = "center";
@@ -547,7 +635,10 @@ export class World {
       if (this.inCompass(this.hover.x, this.hover.y)) verb = "Face North";
       else {
         const p = this.pick(this.hover.x, this.hover.y);
-        if (p.npc) {
+        if (p.fork) {
+          verb = "Look-through";
+          name = " The Fork";
+        } else if (p.npc) {
           verb = "Talk-to";
           name = " " + p.npc.w.name;
         } else if (p.station) {
@@ -588,7 +679,7 @@ export class World {
       walking = true;
       P.walkT += dt;
       const [nx, ny] = P.path[0];
-      const speed = 3.6;
+      const speed = 3.0 + (this.look?.player.vigour ?? 0.5) * 1.0 - (this.look?.player.slouch ?? 0) * 0.5;
       const dx = nx - P.px,
         dy = ny - P.py;
       const dist = Math.hypot(dx, dy);
@@ -601,6 +692,11 @@ export class World {
           P.pendingStation = null;
           this.faceStation(s);
           this.cb.openStation(s, this.stationScreenPos(s));
+        }
+        if (!P.path.length && P.pendingFork) {
+          P.pendingFork = false;
+          P.face = Math.PI;
+          this.cb.openFork();
         }
         if (!P.path.length && P.pendingNpc) {
           const n = P.pendingNpc;
@@ -629,6 +725,25 @@ export class World {
       wz = P.py + 0.5;
     this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
     this.animateAction(rig, P.action?.id ?? null, P.actionT);
+    const sl = this.look?.player.slouch ?? 0;
+    if (sl > 0 && P.action?.id !== "sleep" && P.action?.id !== "meditate") {
+      rig.body.rotation.x += sl * 0.22;
+      rig.head.rotation.x += sl * 0.35;
+      rig.armL.rotation.z -= sl * 0.05;
+      rig.armR.rotation.z += sl * 0.05;
+    }
+    if (this.cloud.visible) {
+      const r = rig.root.position;
+      this.cloud.position.set(r.x, r.y + 1.75 + Math.sin(now / 700) * 0.04, r.z);
+      this.cloud.children.forEach((c, i) => {
+        if (c.name !== "drop") return;
+        c.position.y = -0.2 - (((now / 600 + i * 0.37) % 1) * 1.2);
+      });
+    }
+    this.spinners.forEach((o) => (o.rotation.y += dt * 1.2));
+    this.fork.children.forEach((c, i) => {
+      if (c.name === "portal") ((c as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.2 * Math.sin(now / 400 + i);
+    });
     // camera follows the player
     const k = 1 - Math.pow(0.002, dt);
     this.cam.tx += (wx - this.cam.tx) * k;
@@ -847,6 +962,21 @@ export class World {
   endTalk() {
     this.npcs.forEach((n) => (n.talking = false));
   }
+  private goToFork() {
+    const P = this.P;
+    P.pendingStation = null;
+    P.pendingNpc = null;
+    if (P.x === FORK.ax && P.y === FORK.ay) {
+      P.face = Math.PI;
+      this.cb.openFork();
+      return;
+    }
+    const path = findPath(P.x, P.y, FORK.ax, FORK.ay);
+    if (!path) return;
+    P.path = path;
+    P.pendingFork = true;
+    this.cb.chat("You walk to the Fork.", "sys");
+  }
   private goToNpc(n: Npc) {
     const P = this.P;
     n.path = [];
@@ -972,6 +1102,11 @@ export class World {
     }
     const p = this.pick(v.x, v.y);
     this.endTalk();
+    if (p.fork) {
+      if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
+      this.goToFork();
+      return;
+    }
     if (p.npc) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
       this.goToNpc(p.npc);
@@ -1004,6 +1139,7 @@ export class World {
     P.path = path;
     P.pendingStation = null;
     P.pendingNpc = null;
+    P.pendingFork = false;
   }
   private faceStation(s: Station) {
     const P = this.P;
@@ -1024,6 +1160,7 @@ export class World {
     P.path = path;
     P.pendingStation = s;
     P.pendingNpc = null;
+    P.pendingFork = false;
     this.cb.chat("You walk to the " + s.name.toLowerCase() + ".", "sys");
   }
   private onKeyDown = (e: KeyboardEvent) => {

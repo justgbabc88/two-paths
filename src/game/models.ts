@@ -110,6 +110,10 @@ export interface Look {
   staff?: boolean;
   satchel?: string;
   scale?: number;
+  trim?: string; // collar and hem trim
+  cape?: string;
+  circlet?: boolean;
+  tired?: boolean; // shadows under the eyes
 }
 export const PLAYER_LOOK: Look = { skin: "#c99a72", top: "#3c5a8c", bottom: "#3a3328", hair: "#4a2e18", belt: "#3a2614" };
 
@@ -205,6 +209,19 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   }
   if (style === "long") head.add(part(new THREE.CapsuleGeometry(0.12, 0.18, 3, 10).scale(1.05, 1, 0.55), look.hair, 0, -0.14, -0.07));
   if (style === "bun") head.add(part(new THREE.SphereGeometry(0.07, 10, 8), look.hair, 0, 0.1, -0.13));
+  if (look.tired) for (const x of [-0.05, 0.05]) head.add(part(new THREE.SphereGeometry(0.022, 6, 4).scale(1, 0.45, 0.4), "#7a5a52", x, 0.0, 0.112));
+  if (look.circlet) head.add(part(new THREE.TorusGeometry(0.142, 0.012, 5, 18).rotateX(Math.PI / 2), "#d4a52a", 0, 0.06, 0));
+  if (look.trim) {
+    body.add(part(new THREE.TorusGeometry(0.1, 0.018, 5, 14).rotateX(Math.PI / 2), look.trim, 0, 0.93, 0));
+    const hem = part(new THREE.TorusGeometry(0.152, 0.016, 5, 16).rotateX(Math.PI / 2), look.trim, 0, 0.51, 0);
+    hem.scale.set(1, 1, 0.8);
+    body.add(hem);
+  }
+  if (look.cape) {
+    const cape = part(new THREE.CylinderGeometry(0.2, 0.3, 0.72, 10, 1, true, Math.PI * 0.6, Math.PI * 0.8), look.cape, 0, 0.56, -0.02);
+    cape.scale.set(1, 1, 0.75);
+    body.add(cape);
+  }
   if (look.beard) head.add(part(new THREE.SphereGeometry(0.11, 10, 8, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55).scale(1, 1.25, 0.9), look.beard, 0, -0.02, 0.035));
   if (look.hat) {
     const c = look.hat.color;
@@ -598,3 +615,217 @@ export const CHIMNEYS: Partial<Record<StationId, [number, number, number]>> = {
   tavern: [-0.55, 2.9, -0.4],
   shack: [0.0, 1.0, 0.6],
 };
+
+// ---------------- living village ----------------
+// Extras added on top of each station's base model as its skill climbs through
+// the five bands. Cumulative: tier 3 also has tiers 1 and 2's additions.
+function lantern(x: number, y: number, z: number) {
+  const g = new THREE.Group();
+  g.add(box(0.05, y, 0.05, "#3a2614", 0, y / 2, 0));
+  g.add(box(0.12, 0.14, 0.12, "#f0c766", 0, y + 0.07, 0, { emissive: "#8a6010" }));
+  g.add(box(0.15, 0.03, 0.15, "#3a2614", 0, y + 0.16, 0));
+  g.position.set(x, 0, z);
+  g.name = "light";
+  return g;
+}
+function banner(x: number, z: number, color: string, h = 1.8) {
+  const g = new THREE.Group();
+  g.add(cyl(0.025, 0.03, h, 6, "#3a2614", 0, h / 2, 0));
+  g.add(box(0.03, 0.4, 0.26, color, 0, h - 0.3, 0.14));
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 4), mat("#d4a52a"))).position.set(0, h + 0.02, 0);
+  g.position.set(x, 0, z);
+  return g;
+}
+function annex(w: number, d: number, h: number, wall: string, roof: string, x: number, z: number) {
+  const g = new THREE.Group();
+  g.add(box(w, h, d, wall, 0, h / 2, 0));
+  g.add(gableX(w + 0.25, d + 0.2, h * 0.6, roof, h));
+  g.add(box(0.3, 0.28, 0.04, "#f0c766", 0, h * 0.55, d / 2 + 0.01, { emissive: "#6a4a10" }));
+  g.position.set(x, 0, z);
+  return g;
+}
+function flowerBed(x: number, z: number, w: number) {
+  const g = new THREE.Group();
+  g.add(box(w, 0.08, 0.22, "#5a3a20", 0, 0.04, 0));
+  const cols = ["#c75b7a", "#e0c040", "#efe6d0", "#9a7ad0"];
+  for (let i = 0; i < Math.round(w * 8); i++) g.add(box(0.06, 0.06, 0.06, cols[i % 4], -w / 2 + 0.06 + i * 0.12, 0.12, (hash(i, w) - 0.5) * 0.12));
+  g.position.set(x, 0, z);
+  return g;
+}
+
+function upgrade(id: StationId, g: THREE.Group, tier: number) {
+  const T = (n: number) => tier >= n;
+  switch (id) {
+    case "business":
+      if (T(1)) { g.add(lantern(-1.0, 1.0, 0.45)); g.add(box(0.3, 0.3, 0.3, "#7a5533", 1.05, 0.15, 0.25)); g.add(box(0.26, 0.26, 0.26, "#8a6036", 1.05, 0.43, 0.25)); }
+      if (T(2)) { g.add(cyl(0.16, 0.16, 0.42, 8, "#6b4626", -1.15, 0.21, -0.1)); g.add(cyl(0.16, 0.16, 0.42, 8, "#6b4626", -1.15, 0.21, 0.25)); }
+      if (T(3)) g.add(annex(1.9, 0.9, 1.3, "#d8cba7", "#8a3a2a", 0, -0.95));
+      if (T(4)) { g.add(annex(1.5, 0.7, 0.8, "#cbbd98", "#7a3324", 0, -0.95)).children.at(-1)!.position.y = 1.3; g.add(banner(-1.0, -0.6, "#d4a52a", 2.4)); g.add(banner(1.0, -0.6, "#d4a52a", 2.4)); }
+      break;
+    case "wealth":
+      if (T(1)) { g.add(lantern(-0.6, 0.8, 1.0)); g.add(lantern(0.6, 0.8, 1.0)); }
+      if (T(2)) {
+        const pile = new THREE.Group();
+        for (let i = 0; i < 9; i++) pile.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.08, 0), mat("#d4a52a", { emissive: "#3a2a00" }))).children.at(-1)!.position.set((hash(i, 1) - 0.5) * 0.4, 0.06 + (i % 3) * 0.06, (hash(i, 2) - 0.5) * 0.3);
+        pile.position.set(-0.75, 0, 0.9);
+        g.add(pile);
+      }
+      if (T(3)) {
+        for (const x of [-0.5, 0.5]) { const leg = box(0.08, 1.9, 0.08, C.wood, x, 1.3, -0.3); leg.rotation.z = -x * 0.25; g.add(leg); }
+        g.add(box(0.7, 0.08, 0.1, C.woodLt, 0, 2.2, -0.3));
+        const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 5, 12), mat("#5d5a54"));
+        wheel.position.set(0, 2.2, -0.2);
+        wheel.name = "spin";
+        g.add(wheel);
+      }
+      if (T(4)) { const chest = new THREE.Group(); chest.add(box(0.4, 0.26, 0.28, "#6b2a1e", 0, 0.13, 0)); chest.add(box(0.42, 0.04, 0.3, "#d4a52a", 0, 0.27, 0)); chest.add(box(0.4, 0.08, 0.28, "#f3cd48", 0, 0.31, 0, { emissive: "#5a4000" })); chest.position.set(0.0, 0, 1.25); g.add(chest); g.add(banner(-0.95, -0.2, "#d4a52a", 2.2)); }
+      break;
+    case "relationship":
+      if (T(1)) { g.add(flowerBed(-0.75, 0.95, 0.8)); g.add(flowerBed(0.75, 0.95, 0.8)); }
+      if (T(2)) {
+        for (let i = 0; i < 11; i++) g.add(box(0.05, 0.3, 0.04, "#efe6d0", -1.5 + i * 0.3, 0.15, 1.15));
+        g.add(box(3.1, 0.04, 0.03, "#efe6d0", 0, 0.24, 1.15));
+        g.add(box(0.6, 0.06, 0.2, C.wood, 1.25, 0.25, 0.75)); g.add(box(0.06, 0.25, 0.18, C.wood, 1.0, 0.12, 0.75)); g.add(box(0.06, 0.25, 0.18, C.wood, 1.5, 0.12, 0.75));
+      }
+      if (T(3)) g.add(annex(1.0, 1.1, 0.95, C.plaster, C.thatch, -1.85, -0.1));
+      if (T(4)) {
+        const tree = new THREE.Group();
+        tree.add(cyl(0.08, 0.12, 1.4, 6, C.wood, 0, 0.7, 0));
+        tree.add(new THREE.Mesh(roughen(new THREE.IcosahedronGeometry(0.65, 0).toNonIndexed(), 0.12, 31), mat("#4a7530"))).children.at(-1)!.position.set(0, 1.6, 0);
+        tree.add(box(0.5, 0.03, 0.02, C.woodDk, 0.3, 1.15, 0));
+        for (const x of [0.12, 0.48]) tree.add(box(0.01, 0.7, 0.01, "#d9cfb8", x, 0.8, 0));
+        tree.add(box(0.4, 0.04, 0.15, C.wood, 0.3, 0.45, 0));
+        tree.position.set(1.9, 0, 0.3);
+        g.add(tree);
+        for (let i = 0; i < 6; i++) g.add(new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 4), mat("#f0c766", { emissive: "#8a6010" }))).children.at(-1)!.position.set(-1.1 + i * 0.44, 1.05 - Math.sin((i / 5) * Math.PI) * 0.12, 0.75);
+      }
+      break;
+    case "learning":
+      if (T(1)) { g.add(lantern(-1.35, 1.0, 0.9)); g.add(lantern(1.35, 1.0, 0.9)); }
+      if (T(2)) {
+        const cart = new THREE.Group();
+        cart.add(box(0.5, 0.3, 0.3, C.wood, 0, 0.3, 0));
+        ["#8e3530", "#3d7048", "#36508a", "#a88a2e", "#6a4a8a"].forEach((c, i) => cart.add(box(0.07, 0.2, 0.2, c, -0.18 + i * 0.09, 0.55, 0)));
+        cart.position.set(1.0, 0, 1.0);
+        g.add(cart);
+      }
+      if (T(3)) { g.add(new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), mat("#b9a888"))).children.at(-1)!.position.set(0, 2.15, -0.1); const sc = cyl(0.05, 0.08, 0.6, 6, "#4a4c50", 0.2, 2.6, -0.1); sc.rotation.z = -0.8; g.add(sc); }
+      if (T(4)) { const tw = new THREE.Group(); tw.add(cyl(0.38, 0.42, 2.6, 8, C.stone, 0, 1.3, 0)); tw.add(new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.8, 8), mat(C.slate))).children.at(-1)!.position.set(0, 3.0, 0); tw.position.set(-1.55, 0, -0.4); g.add(tw); g.add(banner(1.5, -0.5, "#36508a", 2.4)); }
+      break;
+    case "health":
+      if (T(1)) for (let i = 0; i < 3; i++) g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.1, 0), mat("#2c2e31"))).children.at(-1)!.position.set(0.6 + i * 0.25, 0.1, 0.6);
+      if (T(2)) { g.add(box(0.07, 1.4, 0.07, C.wood, -1.2, 0.7, 0.55)); g.add(box(0.07, 1.4, 0.07, C.wood, -0.6, 0.7, 0.55)); g.add(cyl(0.025, 0.025, 0.7, 6, "#9aa0a6", -0.9, 1.35, 0.55)).children.at(-1)!.rotation.set(0, 0, Math.PI / 2); }
+      if (T(3)) { for (const x of [-1.35, 1.35]) for (const z of [-0.85, 0.85]) g.add(box(0.08, 1.6, 0.08, C.woodDk, x, 0.8, z)); const roof = box(3.0, 0.08, 1.95, "#7a3324", 0, 1.65, 0); roof.rotation.x = 0.08; g.add(roof); }
+      if (T(4)) { const st = new THREE.Group(); st.add(box(0.4, 0.4, 0.4, C.stoneLt, 0, 0.2, 0)); st.add(cyl(0.08, 0.1, 0.5, 8, "#d4a52a", 0, 0.65, 0)); st.add(new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), mat("#d4a52a", { emissive: "#3a2a00" }))).children.at(-1)!.position.set(0, 0.98, 0); st.add(box(0.5, 0.06, 0.06, "#d4a52a", 0, 0.82, 0)); st.position.set(1.15, 0, 0.6); g.add(st); }
+      break;
+    case "mind":
+      if (T(1)) for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; g.add(new THREE.Mesh(natureGeo.rock, mat(C.stoneLt))).children.at(-1)!.position.set(Math.cos(a) * 1.0, 0.0, Math.sin(a) * 1.0 + 0.1); g.children.at(-1)!.scale.setScalar(0.35); }
+      if (T(2)) { g.add(lantern(-0.9, 0.7, 0.8)); g.add(lantern(0.9, 0.7, 0.8)); g.add(flowerBed(0, 1.05, 0.9)); }
+      if (T(3)) for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2 + 0.4; const m = box(0.22, 0.9, 0.16, "#8a8c86", Math.cos(a) * 1.3, 0.45, Math.sin(a) * 1.0); m.rotation.y = -a; g.add(m); }
+      if (T(4)) { const cr = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), new THREE.MeshLambertMaterial({ color: "#bfe3ff", emissive: "#4a7aa8", flatShading: true })); cr.position.set(0.04, 2.95, 0); cr.name = "spin"; g.add(cr); }
+      break;
+  }
+}
+
+/** Vice places swell with recent use (0-3). */
+function viceExtras(id: StationId, g: THREE.Group, v: number) {
+  if (v <= 0) return;
+  switch (id) {
+    case "tavern":
+      for (let i = 0; i < v * 2; i++) g.add(cyl(0.13, 0.13, 0.3, 8, C.wood, 0.95 - (i % 3) * 0.3, 0.15 + Math.floor(i / 3) * 0.3, 1.05 + (i % 2) * 0.05));
+      if (v >= 2) for (let i = 0; i < 5; i++) g.add(cyl(0.03, 0.035, 0.16, 6, "#3d6a3a", -0.9 + i * 0.12, 0.08, 1.0 + hash(i, 3) * 0.2)).children.at(-1)!.rotation.set(i % 2 ? 1.4 : 0, 0, 0);
+      break;
+    case "shack": {
+      const haze = new THREE.Mesh(new THREE.SphereGeometry(0.9 + v * 0.35, 12, 8), new THREE.MeshLambertMaterial({ color: "#9fb08a", transparent: true, opacity: 0.12 + v * 0.06, depthWrite: false }));
+      haze.position.set(0, 0.8, 0.1);
+      haze.name = "haze";
+      g.add(haze);
+      break;
+    }
+    case "sweets":
+      for (let i = 0; i < v * 6; i++) { const w = box(0.08, 0.01, 0.06, ["#d95f8f", "#f2d24a", "#9ad0e8", "#efe6d0"][i % 4], (hash(i, 7) - 0.5) * 2.2, 0.01, 0.4 + hash(i, 8) * 0.7); w.rotation.y = hash(i, 9) * 3; g.add(w); }
+      break;
+    case "den":
+      g.add(new THREE.PointLight("#5a8aff", 1.2 + v * 1.2, 3.5)).children.at(-1)!.position.set(0, 0.8, 0.9);
+      for (let i = 0; i < v * 3; i++) g.add(cyl(0.035, 0.035, 0.11, 6, ["#c8432f", "#3a6ac8", "#d9d4ca"][i % 3], (hash(i, 4) - 0.5) * 1.6, 0.05, 0.85 + hash(i, 5) * 0.3)).children.at(-1)!.rotation.set(Math.PI / 2, hash(i, 6) * 3, 0);
+      break;
+  }
+}
+
+/** Rust: darker, unlit, weeds around the base and a lean once it's been abandoned a while. */
+function neglect(g: THREE.Group, n: number, w: number, d: number) {
+  if (n <= 0) return;
+  const k = 1 - n * 0.14;
+  g.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const src = m.material as THREE.MeshLambertMaterial;
+    if (!src || !(src as THREE.MeshLambertMaterial).color) return;
+    const nm = src.clone();
+    nm.color = src.color.clone().multiplyScalar(k).lerp(new THREE.Color("#6a6a5a"), n * 0.12);
+    if ((nm as THREE.MeshLambertMaterial).emissive && n >= 2) (nm as THREE.MeshLambertMaterial).emissive = new THREE.Color("#000");
+    m.material = nm;
+  });
+  const weed = new THREE.ConeGeometry(0.07, 0.3, 4);
+  for (let i = 0; i < n * 10; i++) {
+    const side = i % 4,
+      t = hash(i, n) - 0.5;
+    const x = side < 2 ? t * w : (side === 2 ? -1 : 1) * (w / 2 + 0.1);
+    const z = side >= 2 ? t * d : (side === 0 ? -1 : 1) * (d / 2 + 0.1);
+    const m = new THREE.Mesh(weed, mat(i % 3 ? "#5a6a30" : "#6e6a3a"));
+    m.position.set(x, 0.12, z);
+    m.rotation.z = (hash(i, 2) - 0.5) * 0.6;
+    m.scale.setScalar(0.8 + hash(i, 3) * 0.8);
+    g.add(m);
+  }
+  if (n >= 3) {
+    g.rotation.z = 0.035;
+    for (let i = 0; i < 3; i++) { const p = box(0.5, 0.04, 0.1, "#4a3a28", (hash(i, 11) - 0.5) * w, 0.03, d / 2 + 0.25); p.rotation.y = hash(i, 12) * 2; g.add(p); }
+  }
+}
+
+export interface StationAppearance { tier: number; neglect: number; vice: number }
+/** A station as it should look right now (or in a projected future). */
+export function buildStation(id: StationId, a: StationAppearance, w: number, d: number): THREE.Group {
+  const g = makeStation(id);
+  upgrade(id, g, a.tier);
+  viceExtras(id, g, a.vice);
+  neglect(g, a.neglect, w, d);
+  return g;
+}
+
+/** The Fork: a stone arch whose two halves glow gold (keep going) and grey (let it slide). */
+export function makeFork(): THREE.Group {
+  const g = new THREE.Group();
+  for (const x of [-0.85, 0.85]) {
+    g.add(new THREE.Mesh(roughen(new THREE.BoxGeometry(0.32, 2.0, 0.4, 1, 4, 1).toNonIndexed(), 0.04, 41), mat("#8a867c"))).children.at(-1)!.position.set(x, 1.0, 0);
+  }
+  const arch = new THREE.Mesh(roughen(new THREE.TorusGeometry(0.85, 0.18, 6, 14, Math.PI).toNonIndexed(), 0.03, 42), mat("#8a867c"));
+  arch.position.set(0, 2.0, 0);
+  g.add(arch);
+  g.add(box(2.2, 0.12, 0.6, "#6e6a62", 0, 0.06, 0));
+  const half = (x: number, color: string) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 2.4), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+    m.position.set(x, 1.4, 0);
+    m.name = "portal";
+    return m;
+  };
+  g.add(half(-0.35, "#f2c860"));
+  g.add(half(0.35, "#7d848a"));
+  return g;
+}
+
+/** Dark rain cloud that follows the player after a heavy week. */
+export function makeCloud(): THREE.Group {
+  const g = new THREE.Group();
+  [[0, 0, 0, 0.28], [0.25, -0.02, 0.05, 0.22], [-0.24, -0.03, -0.04, 0.2], [0.05, 0.12, -0.05, 0.2]].forEach(([x, y, z, r]) => {
+    g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshLambertMaterial({ color: "#4a4e56", flatShading: true, transparent: true, opacity: 0.92 }))).children.at(-1)!.position.set(x, y, z);
+  });
+  for (let i = 0; i < 8; i++) {
+    const drop = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.09, 0.012), new THREE.MeshBasicMaterial({ color: "#9ab4d0" }));
+    drop.position.set((hash(i, 1) - 0.5) * 0.5, -0.2, (hash(i, 2) - 0.5) * 0.3);
+    drop.name = "drop";
+    g.add(drop);
+  }
+  return g;
+}

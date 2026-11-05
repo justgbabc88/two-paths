@@ -7,6 +7,8 @@ import { FuturePane } from "./FuturePane";
 import { HabitsPane, dayLabel } from "./HabitsPane";
 import { GroundMenu, StationMenu } from "./StationMenu";
 import { Dialogue } from "./Dialogue";
+import { ForkPanel } from "./ForkPanel";
+import { futureLook, todayLook } from "../game/appearance";
 import type { Wanderer } from "../game/wanderers";
 import { StatsPane } from "./StatsPane";
 
@@ -25,6 +27,9 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [lines, setLines] = useState<Line[]>([]);
   const [menu, setMenu] = useState<{ s: Station; pos: { x: number; y: number } } | null>(null);
   const [talking, setTalking] = useState<Wanderer | null>(null);
+  const [fork, setFork] = useState<{ years: number; path: "keep" | "slide" } | null>(null);
+  const forkRef = useRef(fork);
+  forkRef.current = fork;
   const [groundMenu, setGroundMenu] = useState<{ tile: [number, number]; pos: { x: number; y: number } } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -98,6 +103,10 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     const w = new World(canvasRef.current!, hudRef.current!, {
       chat,
       openStation: (s, pos) => {
+        if (forkRef.current) {
+          chat("You can't change the future from here. Return to today to log a habit.", "hint");
+          return;
+        }
         setGroundMenu(null);
         setMenu({ s, pos: { ...pos } });
       },
@@ -109,6 +118,13 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         setMenu(null);
         setGroundMenu(null);
         setTalking(null);
+      },
+      openFork: () => {
+        setMenu(null);
+        setGroundMenu(null);
+        setTalking(null);
+        setFork((f) => f ?? { years: 5, path: "keep" });
+        chat("You step up to the Fork. The village shifts around you.", "lvl");
       },
       openDialogue: (w) => {
         setMenu(null);
@@ -142,6 +158,12 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
       worldRef.current = null;
     };
   }, [chat, commit]);
+
+  // ---- the village reflects your record (or your projected future) ----
+  const look = useMemo(() => (fork ? futureLook(state, c, fork.years, fork.path) : todayLook(state, c)), [state, c, fork]);
+  useEffect(() => {
+    worldRef.current?.applyLook(look);
+  }, [look]);
 
   // ---- menu actions ----
   const onDo = (h: Habit) => {
@@ -241,6 +263,18 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
             <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Click a wanderer to talk.</div>
+            {fork && (
+              <ForkPanel
+                c={c}
+                years={fork.years}
+                path={fork.path}
+                onChange={(years, path) => setFork({ years, path })}
+                onClose={() => {
+                  setFork(null);
+                  chat("You step back from the Fork. It's today again.", "sys");
+                }}
+              />
+            )}
             {talking && (
               <Dialogue
                 w={talking}

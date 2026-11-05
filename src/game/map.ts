@@ -91,6 +91,11 @@ for (let y = 0; y < ROWS; y++) {
 STATIONS.forEach((s) => {
   for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) blocked[y][x] = true;
 });
+/** The Fork: a landmark arch south of the village square that shows your two futures. */
+export const FORK = { x: 20, y: 16, w: 2, h: 1, ax: 20, ay: 17 };
+for (let x = FORK.x; x < FORK.x + FORK.w; x++) blocked[FORK.y][x] = true;
+export const isFork = (x: number, y: number) => x >= FORK.x && x < FORK.x + FORK.w && y === FORK.y;
+
 export const stationAt = (x: number, y: number) => STATIONS.find((s) => x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h);
 
 export type Pt = [number, number];
