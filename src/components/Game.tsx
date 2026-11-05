@@ -11,6 +11,9 @@ import { ForkPanel } from "./ForkPanel";
 import { futureLook, todayLook } from "../game/appearance";
 import { QUESTS, isFinished, statusOf, type Quest } from "../game/quests";
 import { QuestsPane } from "./QuestsPane";
+import { ShopPanel } from "./ShopPanel";
+import { flowFor, gp, money, type ShopItem } from "../game/economy";
+import type { Custom } from "../game/data";
 import type { Wanderer } from "../game/wanderers";
 import { StatsPane } from "./StatsPane";
 
@@ -29,6 +32,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [lines, setLines] = useState<Line[]>([]);
   const [menu, setMenu] = useState<{ s: Station; pos: { x: number; y: number } } | null>(null);
   const [talking, setTalking] = useState<Wanderer | null>(null);
+  const [shop, setShop] = useState<"shop" | "wardrobe" | "bank" | null>(null);
   const [fork, setFork] = useState<{ years: number; path: "keep" | "slide" } | null>(null);
   const forkRef = useRef(fork);
   forkRef.current = fork;
@@ -121,6 +125,13 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         setGroundMenu(null);
         setTalking(null);
       },
+      openShop: () => {
+        setMenu(null);
+        setGroundMenu(null);
+        setTalking(null);
+        setShop("shop");
+        chat("Welcome to the general store. Everything here is paid for with good days.", "hint");
+      },
       openFork: () => {
         setMenu(null);
         setGroundMenu(null);
@@ -143,6 +154,11 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         const n = (next.logs[day] || {})[h.id] || 0;
         if (h.type === "neg") chat(`You log: ${h.name}. The path bends the wrong way. (${n} today)`, "bad");
         else chat(`You log: ${h.name}. (${n} today)`, "xp");
+        const f = flowFor(h);
+        if (f.kind === "cost") chat(`That cost you ${gp(f.amount)}.`, "bad");
+        else if (f.kind === "deposit") chat(`${gp(f.amount)} goes into the bank.`, "xp");
+        else chat(`You earn ${gp(f.amount)}${f.kind === "wage" ? " in wages" : ""}.`, "xp");
+        worldRef.current?.moneyDrop((f.kind === "cost" ? "-" : "+") + f.amount + (f.kind === "deposit" ? " bank" : ""), f.kind === "cost");
         let ups = 0;
         SKILLS.forEach((s) => {
           if (after[s.id] > before[s.id]) {
@@ -198,6 +214,23 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     const quests = { ...st.quests };
     delete quests[q.id];
     commit({ ...st, quests });
+  };
+
+  // ---- money, shop and wardrobe ----
+  const purse = useMemo(() => money(state), [state]);
+  const buyItem = (it: ShopItem) => {
+    const st = stateRef.current;
+    if (money(st).wallet < it.price || (st.owned ?? []).includes(it.id)) return;
+    const slotKey = ({ top: "top", hat: "hat", cape: "cape", accessory: "accessory", pet: "pet" } as const)[it.slot];
+    commit({ ...st, owned: [...(st.owned ?? []), it.id], custom: { ...st.custom, [slotKey]: it.id } });
+    chat(`You buy the ${it.name.toLowerCase()} for ${gp(it.price)}${it.slot === "pet" ? ". It decides to follow you home" : " and put it on"}.`, "lvl");
+  };
+  const setCustom = (c: Custom) => commit({ ...stateRef.current, custom: c });
+  const withdraw = (amount: number) => {
+    const st = stateRef.current;
+    if (amount <= 0 || amount > money(st).bank) return;
+    commit({ ...st, withdrawals: [...(st.withdrawals ?? []), { day: dayKey(new Date()), amount }] });
+    chat(`You withdraw ${gp(amount)} from the bank. It stops earning interest.`, "hint");
   };
 
   // ---- menu actions ----
@@ -292,12 +325,31 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         <div className="world">
           <div className="top">
             <h1>Two Paths</h1>
-            <div className="sync">{sync}</div>
+            <div className="topbtns">
+              <button className={"wallet" + (purse.wallet < 0 ? " debt" : "")} onClick={() => setShop("bank")} title="Wallet (bank in brackets)">
+                🪙 {gp(purse.wallet)} <small>(🏦 {gp(purse.bank)})</small>
+              </button>
+              <button onClick={() => setShop("wardrobe")} title="Change how you look">
+                Wardrobe
+              </button>
+              <span className="sync">{sync}</span>
+            </div>
           </div>
           <div style={{ position: "relative" }}>
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
             <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Explore beyond the village: keep, woods, farms, coast.</div>
+            {shop && (
+              <ShopPanel
+                key={shop}
+                state={state}
+                start={shop}
+                onBuy={buyItem}
+                onCustom={setCustom}
+                onWithdraw={withdraw}
+                onClose={() => setShop(null)}
+              />
+            )}
             {fork && (
               <ForkPanel
                 c={c}

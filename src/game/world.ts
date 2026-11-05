@@ -4,9 +4,9 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, FORK, LANDMARKS, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
+import { COLS, FORK, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
 import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
-import { CHIMNEYS, buildStation, hash, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
+import { CHIMNEYS, buildStation, hash, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
@@ -30,6 +30,8 @@ export interface WorldCallbacks {
   openDialogue(w: Wanderer): void;
   /** Player reached the Fork. */
   openFork(): void;
+  /** Player reached the general store. */
+  openShop(): void;
 }
 
 interface Npc {
@@ -250,6 +252,8 @@ export class World {
   private spinners: THREE.Object3D[] = [];
   private boats: THREE.Object3D[] = [];
   private fork!: THREE.Group;
+  private shop!: THREE.Group;
+  private pet: { rig: PetRig; kind: string; x: number; z: number; face: number; t: number } | null = null;
   private cloud!: THREE.Group;
   private look: WorldLook | null = null;
   private playerKey = "";
@@ -263,7 +267,7 @@ export class World {
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
@@ -332,6 +336,12 @@ export class World {
       sc.add(b);
       this.boats.push(b);
     });
+    this.shop = makeShop();
+    this.shop.position.set(SHOP.x + SHOP.w / 2, groundAt(SHOP.x + SHOP.w / 2, SHOP.y + SHOP.h / 2), SHOP.y + SHOP.h / 2);
+    this.shop.rotation.y = Math.PI / 2; // door faces the road to the east
+    this.shop.userData.shop = true;
+    sc.add(this.shop);
+    this.shop.traverse((o) => o.name === "spin" && this.spinners.push(o));
     this.fork = makeFork();
     this.fork.position.set(FORK.x + FORK.w / 2, groundAt(FORK.x + FORK.w / 2, FORK.y + 0.5), FORK.y + 0.5);
     this.fork.userData.fork = true;
@@ -388,6 +398,7 @@ export class World {
     this.scene.add(g);
     this.spinners = [];
     this.stationGroups.forEach((sg) => sg.traverse((o) => o.name === "spin" && this.spinners.push(o)));
+    this.shop?.traverse((o) => o.name === "spin" && this.spinners.push(o));
     return g;
   }
   /** Rebuild whatever changed so the village (and you) match `look`. */
@@ -412,6 +423,17 @@ export class World {
       this.rig = rig;
     }
     this.cloud.visible = look.player.cloud;
+    const kind = look.player.pet ?? "";
+    if ((this.pet?.kind ?? "") !== kind) {
+      if (this.pet) this.scene.remove(this.pet.rig.root);
+      this.pet = null;
+      if (kind === "dog" || kind === "cat") {
+        const rig = makePet(kind);
+        this.scene.add(rig.root);
+        const r = this.rig.root.position;
+        this.pet = { rig, kind, x: r.x - 0.6, z: r.z + 0.4, face: 0, t: 0 };
+      }
+    }
     this.setMood(look.mood);
   }
   private mood: Mood = "today";
@@ -443,12 +465,13 @@ export class World {
     return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
   /** What is under a point in view coordinates: a station, or a ground tile. */
-  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
+  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; shop?: boolean; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
     this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
-    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.terrain], true)[0];
+    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.shop, this.terrain], true)[0];
     if (!hit) return {};
     let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark) o = o.parent;
+    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark && !o.userData.shop) o = o.parent;
+    if (o?.userData.shop || isShop(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { shop: true, point: hit.point };
     const lm = (o?.userData.landmark as Landmark | undefined) ?? landmarkAt(Math.floor(hit.point.x), Math.floor(hit.point.z));
     if (lm) return { landmark: lm, point: hit.point };
     if (o?.userData.fork || isFork(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { fork: true, point: hit.point };
@@ -589,6 +612,18 @@ export class World {
       ctx.fillStyle = "#f2e6c4";
       ctx.fillText(lab, p.x, p.y + 10);
     });
+    // the store's label
+    {
+      const p = this.project(this.shop.position.x, this.shop.position.y, this.shop.position.z + 1.15);
+      if (!p.behind) {
+        const lab = "🪙 General store";
+        const tw = ctx.measureText(lab).width + 8;
+        ctx.fillStyle = "rgba(0,0,0,.5)";
+        ctx.fillRect(p.x - tw / 2, p.y, tw, 13);
+        ctx.fillStyle = "#f2e6c4";
+        ctx.fillText(lab, p.x, p.y + 10);
+      }
+    }
     // the Fork's label
     {
       const p = this.project(this.fork.position.x, this.fork.position.y + 2.6, this.fork.position.z);
@@ -696,6 +731,9 @@ export class World {
         if (p.fork) {
           verb = "Look-through";
           name = " The Fork";
+        } else if (p.shop) {
+          verb = "Trade";
+          name = " General store";
         } else if (p.landmark) {
           verb = "Examine";
           name = " " + p.landmark.name;
@@ -755,6 +793,11 @@ export class World {
           this.faceStation(s);
           this.cb.openStation(s, this.stationScreenPos(s));
         }
+        if (!P.path.length && P.pendingShop) {
+          P.pendingShop = false;
+          P.face = -Math.PI / 2;
+          this.cb.openShop();
+        }
         if (!P.path.length && P.pendingFork) {
           P.pendingFork = false;
           P.face = Math.PI;
@@ -801,6 +844,31 @@ export class World {
         if (c.name !== "drop") return;
         c.position.y = -0.2 - (((now / 600 + i * 0.37) % 1) * 1.2);
       });
+    }
+    if (this.pet) {
+      const pt = this.pet,
+        r = rig.root.position;
+      // trail a little behind and to the side of the player
+      const tx = r.x - Math.sin(rig.root.rotation.y) * 0.7 + Math.cos(rig.root.rotation.y) * 0.35,
+        tz = r.z - Math.cos(rig.root.rotation.y) * 0.7 - Math.sin(rig.root.rotation.y) * 0.35;
+      const dx = tx - pt.x,
+        dz = tz - pt.z,
+        dist = Math.hypot(dx, dz);
+      const moving = dist > 0.15;
+      if (moving) {
+        const sp = Math.min(dist * 4, 5) * dt;
+        pt.x += (dx / dist) * sp;
+        pt.z += (dz / dist) * sp;
+        pt.face = Math.atan2(dx, dz);
+      }
+      pt.t += dt * (moving ? 14 : 2);
+      pt.rig.root.position.set(pt.x, standY(pt.x, pt.z), pt.z);
+      let df = pt.face - pt.rig.root.rotation.y;
+      df = Math.atan2(Math.sin(df), Math.cos(df));
+      pt.rig.root.rotation.y += df * Math.min(1, dt * 8);
+      pt.rig.legs.forEach((l, i) => (l.rotation.x = moving ? Math.sin(pt.t + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI : 0)) * 0.6 : 0));
+      pt.rig.tail.rotation.z = Math.sin(now / (pt.kind === "dog" ? 120 : 600)) * (pt.kind === "dog" ? 0.6 : 0.3);
+      pt.rig.head.rotation.y = moving ? 0 : Math.sin(now / 1500) * 0.4;
     }
     this.spinners.forEach((o) => (o.rotation.y += dt * 1.2));
     this.sails.forEach((o) => (o.rotation.z -= dt * 0.8));
@@ -1029,6 +1097,10 @@ export class World {
   setQuestGivers(ids: string[]) {
     this.questGivers = new Set(ids);
   }
+  /** A gold amount floating up the right side, like the XP drops. */
+  moneyDrop(text: string, neg: boolean) {
+    this.drops.push({ text, ico: "🪙", t: -0.5, neg });
+  }
   /** Fireworks over the player (quest complete). */
   celebrate() {
     const r = this.rig.root.position;
@@ -1184,6 +1256,25 @@ export class World {
       this.goToFork();
       return;
     }
+    if (p.shop) {
+      if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
+      const P = this.P;
+      P.pendingStation = null;
+      P.pendingNpc = null;
+      P.pendingFork = false;
+      if (P.x === SHOP.ax && P.y === SHOP.ay) {
+        P.face = -Math.PI / 2;
+        this.cb.openShop();
+        return;
+      }
+      const path = findPath(P.x, P.y, SHOP.ax, SHOP.ay);
+      if (path) {
+        P.path = path;
+        P.pendingShop = true;
+        this.cb.chat("You walk to the general store.", "sys");
+      }
+      return;
+    }
     if (p.landmark) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
       const l = p.landmark;
@@ -1239,6 +1330,7 @@ export class World {
     P.pendingStation = null;
     P.pendingNpc = null;
     P.pendingFork = false;
+    P.pendingShop = false;
   }
   private faceStation(s: Station) {
     const P = this.P;

@@ -964,3 +964,69 @@ export function makeBoat(): THREE.Group {
   g.add(oar);
   return g;
 }
+
+// ---------------- shop & pets ----------------
+export function makeShop(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(1.7, 1.2, 1.5, "#cbbd98", 0, 0.6, -0.05));
+  for (const x of [-0.85, 0.85]) g.add(box(0.08, 1.2, 0.06, C.woodDk, x, 0.6, 0.71));
+  g.add(box(1.75, 0.08, 0.06, C.woodDk, 0, 1.18, 0.71));
+  g.add(gableX(2.0, 1.8, 0.8, "#2f5a3a", 1.2));
+  g.add(box(0.45, 0.85, 0.05, C.wood, -0.35, 0.42, 0.71));
+  g.add(box(0.5, 0.42, 0.05, C.lamp, 0.4, 0.68, 0.71, { emissive: "#6a4a10" }));
+  g.add(box(0.6, 0.08, 0.5, "#2f5a3a", 0.4, 1.0, 0.95)).children.at(-1)!.rotation.set(0.35, 0, 0);
+  // hanging coin sign
+  g.add(box(0.05, 0.05, 0.45, C.woodDk, 0.85, 1.25, 0.95));
+  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.04, 14), mat("#d4a52a", { emissive: "#3a2a00" }));
+  coin.rotation.z = Math.PI / 2;
+  coin.position.set(0.85, 1.0, 1.12);
+  coin.name = "spin";
+  g.add(coin);
+  // wares outside
+  g.add(box(0.36, 0.3, 0.3, "#7a5533", -0.6, 0.15, 1.05));
+  g.add(box(0.26, 0.04, 0.2, "#8a2a22", -0.6, 0.32, 1.05));
+  g.add(cyl(0.15, 0.15, 0.4, 8, "#6b4626", 0.0, 0.2, 1.1));
+  return g;
+}
+
+export interface PetRig { root: THREE.Group; legs: THREE.Object3D[]; tail: THREE.Object3D; head: THREE.Object3D }
+export function makePet(kind: "dog" | "cat"): PetRig {
+  const root = new THREE.Group();
+  const fur = kind === "dog" ? "#9a6a3a" : "#5a5a62";
+  const fur2 = kind === "dog" ? "#e8d8b8" : "#d9d4ca";
+  const s = kind === "dog" ? 1 : 0.8;
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.1 * s, 0.26 * s, 4, 8).rotateX(Math.PI / 2), sm(fur));
+  body.position.set(0, 0.24 * s, 0);
+  root.add(body);
+  const head = new THREE.Group();
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.1 * s, 10, 8), sm(fur)));
+  if (kind === "dog") {
+    head.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.06, 3, 6).rotateX(Math.PI / 2), sm(fur2))).children.at(-1)!.position.set(0, -0.025, 0.09);
+    head.add(new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 4), sm("#1a1410"))).children.at(-1)!.position.set(0, -0.01, 0.15);
+    for (const x of [-0.07, 0.07]) { const ear = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4).scale(0.5, 1.1, 0.8), sm("#6b4626")); ear.position.set(x, 0.02, -0.01); head.add(ear); }
+  } else {
+    for (const x of [-0.05, 0.05]) { const ear = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.07, 4), sm(fur)); ear.position.set(x, 0.09, 0); head.add(ear); }
+    head.add(new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), sm(fur2))).children.at(-1)!.position.set(0, -0.025, 0.07);
+  }
+  for (const x of [-0.035, 0.035]) head.add(new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 4), sm("#1a1410"))).children.at(-1)!.position.set(x * s * 1.2, 0.025, 0.085 * s);
+  head.position.set(0, 0.36 * s, 0.2 * s);
+  root.add(head);
+  const legs: THREE.Object3D[] = [];
+  for (const [x, z] of [[-0.06, 0.12], [0.06, 0.12], [-0.06, -0.12], [0.06, -0.12]]) {
+    const leg = new THREE.Group();
+    leg.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.028 * s, 0.12 * s, 3, 6), sm(fur))).children.at(-1)!.position.y = -0.08 * s;
+    leg.position.set(x * s, 0.19 * s, z * s);
+    root.add(leg);
+    legs.push(leg);
+  }
+  const tail = new THREE.Group();
+  tail.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.022 * s, (kind === "cat" ? 0.22 : 0.14) * s, 3, 6), sm(fur))).children.at(-1)!.position.y = 0.1 * s;
+  tail.position.set(0, 0.28 * s, -0.2 * s);
+  tail.rotation.x = -0.6;
+  root.add(tail);
+  const sh = new THREE.Mesh(new THREE.CircleGeometry(0.16, 12), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.25, depthWrite: false }));
+  sh.rotation.x = -Math.PI / 2;
+  sh.position.y = 0.02;
+  root.add(sh);
+  return { root, legs, tail, head };
+}

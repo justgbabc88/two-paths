@@ -6,6 +6,8 @@ import { SKILLS, type GameState, type SkillId, type VicePlace } from "./data";
 import { dayKey, levelFor, parseKey, project, type Computed } from "./logic";
 import type { StationId } from "./map";
 import type { Look } from "./models";
+import { ITEM } from "./economy";
+import type { Custom } from "./data";
 
 export type Mood = "today" | "keep" | "slide";
 
@@ -20,6 +22,7 @@ export interface PlayerAppearance {
   slouch: number; // 0-1
   cloud: boolean; // dark cloud overhead
   vigour: number; // 0-1, upright and quick
+  pet?: "dog" | "cat";
 }
 export interface WorldLook {
   mood: Mood;
@@ -96,6 +99,32 @@ function playerFor(levels: Record<SkillId, number>, opts: { slouch: number; clou
   return { look, slouch: opts.slouch, cloud: opts.cloud, vigour: opts.vigour };
 }
 
+/** Layer the player's wardrobe choices and equipped shop items over the earned outfit. */
+function dress(p: PlayerAppearance, state: GameState, age: number): PlayerAppearance {
+  const c: Custom = state.custom ?? {};
+  const owns = (id?: string) => !!id && (state.owned ?? []).includes(id) && !!ITEM[id];
+  const look: Look = { ...p.look };
+  if (c.skin) look.skin = c.skin;
+  if (c.hairStyle) look.hairStyle = c.hairStyle;
+  if (c.hair && age < 5) look.hair = c.hair;
+  if (c.beard) look.beard = look.hair;
+  if (owns(c.top)) look.top = ITEM[c.top!].color!;
+  if (owns(c.hat)) {
+    const it = ITEM[c.hat!];
+    if (it.circlet) look.circlet = true;
+    else look.hat = { kind: it.hat!, color: it.color! };
+  }
+  if (c.cape === "") look.cape = undefined;
+  else if (owns(c.cape)) look.cape = ITEM[c.cape!].color;
+  if (owns(c.accessory)) {
+    const it = ITEM[c.accessory!];
+    if (it.accessory === "satchel") look.satchel = it.color;
+    if (it.accessory === "staff") look.staff = true;
+  }
+  const pet = owns(c.pet) ? ITEM[c.pet!].pet : undefined;
+  return { ...p, look, pet };
+}
+
 /** The world as it is today. */
 export function todayLook(state: GameState, c: Computed): WorldLook {
   const stations = {} as Record<StationId, StationLook>;
@@ -131,7 +160,7 @@ export function todayLook(state: GameState, c: Computed): WorldLook {
     mood: "today",
     year: null,
     stations,
-    player: playerFor(levels, { slouch, cloud: vice7 >= 3 && bad > good, tired: vice3 >= 2, vigour, age: 0 }),
+    player: dress(playerFor(levels, { slouch, cloud: vice7 >= 3 && bad > good, tired: vice3 >= 2, vigour, age: 0 }), state, 0),
   };
 }
 
@@ -152,5 +181,5 @@ export function futureLook(state: GameState, c: Computed, years: number, path: "
     path === "keep"
       ? playerFor(levels, { slouch: healthRate < 0 ? 0.4 : 0, cloud: false, tired: false, vigour: healthRate > 0 ? 1 : 0.4, age: years })
       : playerFor(levels, { slouch: 1, cloud: true, tired: true, vigour: 0, age: years });
-  return { mood: path, year: new Date().getFullYear() + years, stations, player };
+  return { mood: path, year: new Date().getFullYear() + years, stations, player: dress(player, state, years) };
 }

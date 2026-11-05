@@ -48,6 +48,24 @@ export interface GameState {
   created: string;
   v: number;
   quests?: QuestBook;
+  /** Shop item ids you've bought. */
+  owned?: string[];
+  /** Money moved from the bank to your wallet. */
+  withdrawals?: { day: string; amount: number }[];
+  /** How you've chosen to look (wardrobe + equipped shop items). */
+  custom?: Custom;
+}
+
+export interface Custom {
+  skin?: string;
+  hairStyle?: "short" | "long" | "bun" | "bald";
+  hair?: string;
+  beard?: boolean;
+  top?: string; // item id of an owned dye
+  hat?: string; // item id, or "" for none
+  cape?: string; // item id, "" for none, undefined = whatever your level earns
+  accessory?: string;
+  pet?: string;
 }
 
 export const SKILLS: Skill[] = [

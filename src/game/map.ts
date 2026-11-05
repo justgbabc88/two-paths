@@ -138,6 +138,11 @@ LANDMARKS.forEach((l) => {
 });
 export const landmarkAt = (x: number, y: number) => LANDMARKS.find((l) => x >= l.x && x < l.x + l.w && y >= l.y && y < l.y + l.h);
 
+/** The general store: buy gear with the gold your habits earn. */
+export const SHOP = { x: 30, y: 31, w: 2, h: 2, ax: 32, ay: 32 };
+for (let y = SHOP.y; y < SHOP.y + SHOP.h; y++) for (let x = SHOP.x; x < SHOP.x + SHOP.w; x++) blocked[y][x] = true;
+export const isShop = (x: number, y: number) => x >= SHOP.x && x < SHOP.x + SHOP.w && y >= SHOP.y && y < SHOP.y + SHOP.h;
+
 /** The Fork: a landmark arch south of the village square that shows your two futures. */
 export const FORK = { x: 36, y: 29, w: 2, h: 1, ax: 36, ay: 30 };
 for (let x = FORK.x; x < FORK.x + FORK.w; x++) blocked[FORK.y][x] = true;
