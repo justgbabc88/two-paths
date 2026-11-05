@@ -160,3 +160,4 @@ h2.s{font-family:"Silkscreen",monospace;font-size:11px;color:var(--gold);margin:
 .dialogue .dask button{background:#2a1d12;color:#f2e2b6;border:1px solid #6b5235;padding:4px 10px;font-size:14px}
 .dialogue .dask button:disabled,.dialogue .dopts button:disabled{opacity:.5}
 .dialogue .dnote{font-size:12px;color:#7a6448;align-self:center}
+.hrow .actsel{max-width:118px;background:var(--bar);border:2px solid var(--line2);font-size:12px;padding:2px 3px}

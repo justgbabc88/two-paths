@@ -136,12 +136,10 @@ export interface CharacterRig {
   armL: THREE.Group;
   armR: THREE.Group;
   head: THREE.Group;
-  pick: THREE.Group;
-  mug: THREE.Group;
-  joint: THREE.Group;
-  phone: THREE.Group;
-  treat: THREE.Group;
+  /** Held or placed props, all hidden until an action shows them. */
+  props: Record<PropId, THREE.Object3D>;
 }
+export type PropId = "pick" | "mug" | "joint" | "phone" | "treat" | "laptop" | "ledger" | "quill" | "dumbL" | "dumbR" | "book" | "bedroll" | "coinbag" | "dice";
 
 export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   const root = new THREE.Group();
@@ -223,37 +221,88 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
     }
   }
 
-  // held items (right hand)
-  const pick = new THREE.Group();
-  pick.add(part(new THREE.CylinderGeometry(0.018, 0.022, 0.55, 6), "#7a5533", 0, 0.18, 0));
-  pick.add(part(new THREE.CapsuleGeometry(0.03, 0.3, 2, 6).rotateZ(Math.PI / 2), "#8d939a", 0, 0.45, 0));
+  // ---- props (hidden until an action uses them) ----
+  const props = {} as Record<PropId, THREE.Object3D>;
+  const hold = (id: PropId, g: THREE.Object3D, parent: THREE.Object3D) => {
+    g.visible = false;
+    parent.add(g);
+    props[id] = g;
+    return g;
+  };
+  const grp = (...ms: THREE.Object3D[]) => {
+    const g = new THREE.Group();
+    ms.forEach((m) => g.add(m));
+    return g;
+  };
+  // right hand
+  const pick = grp(part(new THREE.CylinderGeometry(0.018, 0.022, 0.55, 6), "#7a5533", 0, 0.18, 0), part(new THREE.CapsuleGeometry(0.03, 0.3, 2, 6).rotateZ(Math.PI / 2), "#8d939a", 0, 0.45, 0));
   pick.position.set(0, -0.4, 0.04);
   pick.rotation.x = Math.PI / 2;
-  armR.add(pick);
-  const mug = new THREE.Group();
-  mug.add(part(new THREE.CylinderGeometry(0.065, 0.06, 0.15, 10), "#8a6036"));
-  mug.add(part(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 10), "#efe6cc", 0, 0.075, 0));
-  mug.add(part(new THREE.TorusGeometry(0.04, 0.012, 4, 8, Math.PI), "#6b4626", 0.065, 0, 0).rotateZ(-Math.PI / 2));
+  hold("pick", pick, armR);
+  const mug = grp(part(new THREE.CylinderGeometry(0.065, 0.06, 0.15, 10), "#8a6036"), part(new THREE.CylinderGeometry(0.06, 0.06, 0.02, 10), "#efe6cc", 0, 0.075, 0), part(new THREE.TorusGeometry(0.04, 0.012, 4, 8, Math.PI), "#6b4626", 0.065, 0, 0).rotateZ(-Math.PI / 2));
   mug.position.set(0, -0.44, 0.06);
-  armR.add(mug);
-  const joint = new THREE.Group();
-  joint.add(part(new THREE.CylinderGeometry(0.012, 0.016, 0.12, 6).rotateZ(Math.PI / 2), "#f2ede0"));
-  joint.add(part(new THREE.SphereGeometry(0.016, 6, 4), "#ff7a2a", 0.065, 0, 0));
+  hold("mug", mug, armR);
+  const joint = grp(part(new THREE.CylinderGeometry(0.012, 0.016, 0.12, 6).rotateZ(Math.PI / 2), "#f2ede0"), part(new THREE.SphereGeometry(0.016, 6, 4), "#ff7a2a", 0.065, 0, 0));
   joint.position.set(0, -0.44, 0.04);
-  armR.add(joint);
-  const phone = new THREE.Group();
-  phone.add(part(new THREE.BoxGeometry(0.08, 0.14, 0.015), "#1c1c22"));
+  hold("joint", joint, armR);
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.065, 0.12), new THREE.MeshBasicMaterial({ color: "#8fb8ff" }));
   screen.position.z = 0.009;
-  phone.add(screen);
+  const phone = grp(part(new THREE.BoxGeometry(0.08, 0.14, 0.015), "#1c1c22"), screen);
   phone.position.set(0, -0.46, 0.07);
   phone.rotation.x = -1.1;
-  armR.add(phone);
-  const treat = new THREE.Group();
-  treat.add(part(new THREE.TorusGeometry(0.05, 0.026, 6, 10), "#d95f8f"));
+  hold("phone", phone, armR);
+  const treat = grp(part(new THREE.TorusGeometry(0.05, 0.026, 6, 10), "#d95f8f"));
   treat.position.set(0, -0.46, 0.06);
-  armR.add(treat);
-  pick.visible = mug.visible = joint.visible = phone.visible = treat.visible = false;
+  hold("treat", treat, armR);
+  const quill = grp(part(new THREE.CylinderGeometry(0.006, 0.01, 0.16, 5), "#2a2a2a", 0, 0.03, 0), part(new THREE.ConeGeometry(0.03, 0.12, 4).scale(0.3, 1, 1), "#f2ede0", 0, 0.12, 0));
+  quill.position.set(0, -0.46, 0.04);
+  quill.rotation.x = 0.6;
+  hold("quill", quill, armR);
+  const dumb = () => grp(part(new THREE.CylinderGeometry(0.015, 0.015, 0.22, 6).rotateZ(Math.PI / 2), "#9aa0a6"), part(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 8).rotateZ(Math.PI / 2), "#2c2e31", -0.1, 0, 0), part(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 8).rotateZ(Math.PI / 2), "#2c2e31", 0.1, 0, 0));
+  const dR = dumb();
+  dR.position.set(0, -0.42, 0.02);
+  hold("dumbR", dR, armR);
+  const dice = grp(part(new THREE.BoxGeometry(0.05, 0.05, 0.05), "#f4f0e6", -0.02, 0, 0), part(new THREE.BoxGeometry(0.05, 0.05, 0.05), "#c8432f", 0.035, 0.02, 0.01));
+  dice.position.set(0, -0.45, 0.04);
+  hold("dice", dice, armR);
+  // left hand
+  const dL = dumb();
+  dL.position.set(0, -0.42, 0.02);
+  hold("dumbL", dL, armL);
+  const ledger = grp(part(new THREE.BoxGeometry(0.2, 0.02, 0.15), "#6b2a1e"), part(new THREE.BoxGeometry(0.18, 0.01, 0.13), "#f2ead6", 0, 0.015, 0));
+  ledger.position.set(0.05, -0.43, 0.08);
+  ledger.rotation.x = 1.2;
+  hold("ledger", ledger, armL);
+  const bag = grp(part(new THREE.SphereGeometry(0.07, 8, 6).scale(1, 1.1, 1), "#8a6a3a"), part(new THREE.CylinderGeometry(0.025, 0.04, 0.04, 6), "#6b4a2a", 0, 0.08, 0));
+  bag.position.set(0, -0.48, 0.03);
+  hold("coinbag", bag, armL);
+  // on the body / ground
+  const lap = new THREE.Group();
+  lap.add(part(new THREE.BoxGeometry(0.3, 0.015, 0.2), "#3a3d44"));
+  const lid = part(new THREE.BoxGeometry(0.3, 0.2, 0.012), "#3a3d44", 0, 0.1, -0.1);
+  lid.rotation.x = -0.25;
+  lap.add(lid);
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.16), new THREE.MeshBasicMaterial({ color: "#cfe0ff" }));
+  glow.position.set(0, 0.1, -0.092);
+  glow.rotation.x = -0.25;
+  lap.add(glow);
+  lap.position.set(0, 0.62, 0.3);
+  hold("laptop", lap, body);
+  const bk = new THREE.Group();
+  for (const s of [-1, 1]) {
+    const pg = part(new THREE.BoxGeometry(0.12, 0.16, 0.012), "#f2ead6", s * 0.06, 0, 0);
+    pg.rotation.y = -s * 0.35;
+    bk.add(pg);
+    const cv = part(new THREE.BoxGeometry(0.125, 0.165, 0.008), "#36508a", s * 0.062, 0, -0.01);
+    cv.rotation.y = -s * 0.35;
+    bk.add(cv);
+  }
+  bk.position.set(0, 0.8, 0.26);
+  bk.rotation.x = -0.5;
+  hold("book", bk, body);
+  const bed = grp(part(new THREE.BoxGeometry(0.55, 0.06, 1.3), "#6a7a8a", 0, 0.03, -0.45), part(new THREE.BoxGeometry(0.36, 0.08, 0.2), "#e8e0cc", 0, 0.07, -0.98));
+  hold("bedroll", bed, root);
+
   if (look.staff) {
     const st = part(new THREE.CylinderGeometry(0.02, 0.025, 1.3, 6), "#6b4a2a", 0, -0.2, 0.05);
     armL.add(st);
@@ -266,7 +315,7 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   sh.position.y = 0.02;
   root.add(sh);
   if (look.scale) body.scale.setScalar(look.scale);
-  return { root, body, legL, legR, armL, armR, head, pick, mug, joint, phone, treat };
+  return { root, body, legL, legR, armL, armR, head, props };
 }
 
 // ---------------- nature (instanced) ----------------

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SK, SKILLS, VICE_PLACES, type GameState, type Habit, type HabitType, type SkillId, type VicePlace } from "../game/data";
 import { dayKey, parseKey } from "../game/logic";
+import { ACTION, ACTIONS, actionFor, type ActionId } from "../game/actions";
 
 interface Props {
   state: GameState;
@@ -8,6 +9,7 @@ interface Props {
   onShiftDay(delta: number): void;
   onAdd(h: Omit<Habit, "id">): void;
   onRemove(h: Habit): void;
+  onSetAction(h: Habit, action: ActionId | ""): void;
   onSeed(): void;
   onTheme(): void;
   onReset(): void;
@@ -28,6 +30,7 @@ export function HabitsPane(p: Props) {
   const [xp, setXp] = useState("100");
   const [type, setType] = useState<HabitType>("pos");
   const [place, setPlace] = useState<VicePlace>("tavern");
+  const [action, setAction] = useState<ActionId | "">("");
   const [importText, setImportText] = useState("");
   const log = p.state.logs[p.viewDay] || {};
   const today = dayKey(new Date());
@@ -39,8 +42,9 @@ export function HabitsPane(p: Props) {
       return;
     }
     const x = Math.max(1, Math.min(5000, Number(xp) || 100));
-    p.onAdd({ name: n, skill, skill2: skill2 === skill ? "" : skill2, xp: x, type, ...(type === "neg" ? { place } : {}) });
+    p.onAdd({ name: n, skill, skill2: skill2 === skill ? "" : skill2, xp: x, type, ...(type === "neg" ? { place } : {}), ...(action ? { action } : {}) });
     setName("");
+    setAction("");
   };
 
   return (
@@ -106,6 +110,19 @@ export function HabitsPane(p: Props) {
             </select>
           </label>
         )}
+        <label>
+          Animation
+          <select value={action} onChange={(e) => setAction(e.target.value as ActionId | "")}>
+            <option value="">
+              Auto{name.trim() ? ` (${ACTION[actionFor({ id: "", name, skill, skill2: "", xp: 0, type, ...(type === "neg" ? { place } : {}) })].label})` : " (from the name)"}
+            </option>
+            {ACTIONS.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <div>
           <button className="btn primary" onClick={add}>
             Add habit
@@ -129,6 +146,14 @@ export function HabitsPane(p: Props) {
                   {h.type === "neg" ? " · " + VICE_PLACES.find((v) => v.id === (h.place ?? "tavern"))!.name : ""}
                 </div>
               </div>
+              <select className="actsel" aria-label={"Animation for " + h.name} title="What your character does" value={h.action ?? ""} onChange={(e) => p.onSetAction(h, e.target.value as ActionId | "")}>
+                <option value="">Auto: {ACTION[actionFor({ ...h, action: undefined })].label}</option>
+                {ACTIONS.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
               <button className="btn sm" onClick={() => p.onRemove(h)}>
                 Remove
               </button>

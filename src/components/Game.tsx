@@ -136,6 +136,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
       },
     });
     worldRef.current = w;
+    if (import.meta.env.DEV) (window as unknown as { __world: World }).__world = w; // for local testing only
     return () => {
       w.destroy();
       worldRef.current = null;
@@ -173,6 +174,17 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const addHabit = (h: Omit<Habit, "id">) => {
     commit({ ...stateRef.current, habits: [...stateRef.current.habits, { id: uid(), ...h }] });
     chat("Added habit: " + h.name + ".", "hint");
+  };
+  const setHabitAction = (h: Habit, action: string) => {
+    commit({
+      ...stateRef.current,
+      habits: stateRef.current.habits.map((x) => {
+        if (x.id !== h.id) return x;
+        const { action: _old, ...rest } = x;
+        void _old;
+        return action ? { ...rest, action } : rest;
+      }),
+    });
   };
   const removeHabit = (h: Habit) => {
     if (!confirm(`Remove "${h.name}"? Logged XP stays in history.`)) return;
@@ -291,6 +303,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
                 onShiftDay={shiftDay}
                 onAdd={addHabit}
                 onRemove={removeHabit}
+                onSetAction={setHabitAction}
                 onSeed={seed}
                 onTheme={toggleTheme}
                 onReset={reset}

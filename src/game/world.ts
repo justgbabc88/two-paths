@@ -7,6 +7,8 @@ import { SK, type Habit } from "./data";
 import { COLS, ROWS, START, STATIONS, blocked, cell, findPath, isWater, stationAt, stationIcon, type Pt, type Station } from "./map";
 import { CHIMNEYS, hash, makeBridge, makeCharacter, makeStation, mat, natureGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
+import { ACTION, actionFor, type ActionId } from "./actions";
+import type { PropId } from "./models";
 
 export { STATIONS, habitsAtStation, type Station } from "./map";
 
@@ -225,12 +227,13 @@ export class World {
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean }, actionT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
   private sparks: Spark[] = [];
   private markers: Marker[] = [];
+  private fx: { text: string; t: number; dx: number }[] = [];
   private hover: { x: number; y: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private drag: { id: number; sx: number; sy: number; lx: number; ly: number; moved: boolean } | null = null;
@@ -481,6 +484,24 @@ export class World {
       ctx.fillText(n.bark.text, p.x, p.y);
       ctx.globalAlpha = 1;
     });
+    // action symbols rising from the player
+    if (this.fx.length) {
+      const r = this.rig.root.position;
+      const sleeping = this.P.action?.id === "sleep";
+      const base = this.project(r.x, r.y + (sleeping ? 0.4 : 1.35), r.z + (sleeping ? -0.9 : 0));
+      ctx.font = "bold 15px 'Alegreya Sans', Georgia, serif";
+      ctx.textAlign = "center";
+      this.fx.forEach((f) => {
+        ctx.globalAlpha = Math.max(0, 1 - f.t / 1.4);
+        const x = base.x + f.dx + Math.sin(f.t * 4) * 4,
+          y = base.y - f.t * 32;
+        ctx.fillStyle = "#000";
+        ctx.fillText(f.text, x + 1, y + 1);
+        ctx.fillStyle = f.text === "♥" ? "#ff8a9a" : f.text === "z" ? "#cfe0ff" : "#f5e7c3";
+        ctx.fillText(f.text, x, y);
+      });
+      ctx.globalAlpha = 1;
+    }
     // click markers
     this.markers.forEach((m) => {
       const p = this.project(m.x, groundAt(m.x, m.z) + 0.05, m.z);
@@ -595,23 +616,19 @@ export class World {
     }
     if (P.action) {
       P.actionT += dt;
-      if (P.actionT >= 1.4) this.finishAction();
+      const def = ACTION[P.action.id];
+      if (def.fx && (P.fxT -= dt) <= 0) {
+        this.fx.push({ text: def.fx, t: 0, dx: (Math.random() - 0.5) * 16 });
+        P.fxT = 0.45;
+      }
+      if (P.actionT >= def.secs) this.finishAction();
     }
     this.updateNpcs(dt);
     // character pose
     const wx = P.px + 0.5,
       wz = P.py + 0.5;
-    const sw = this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
-    const place = P.action?.neg ? (P.action.habit.place ?? "tavern") : null;
-    rig.pick.visible = !!P.action && !P.action.neg;
-    rig.mug.visible = place === "tavern";
-    rig.joint.visible = place === "shack";
-    rig.phone.visible = place === "den";
-    rig.treat.visible = place === "sweets";
-    if (P.action && !P.action.neg) rig.armR.rotation.x = -1.6 - Math.cos(P.actionT * 9) * 1.0;
-    else if (place === "den") rig.armR.rotation.x = -1.1;
-    else if (P.action) rig.armR.rotation.x = -1.2 - Math.max(0, Math.sin(P.actionT * 4)) * 1.2;
-    else rig.armR.rotation.x = sw * 0.8;
+    this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
+    this.animateAction(rig, P.action?.id ?? null, P.actionT);
     // camera follows the player
     const k = 1 - Math.pow(0.002, dt);
     this.cam.tx += (wx - this.cam.tx) * k;
@@ -642,6 +659,8 @@ export class World {
       ((s.mesh.material as THREE.MeshLambertMaterial).opacity = 0.55 * (1 - s.t));
     });
     // effects
+    this.fx.forEach((f) => (f.t += dt));
+    this.fx = this.fx.filter((f) => f.t < 1.4);
     this.markers.forEach((m) => (m.t += dt));
     this.markers = this.markers.filter((m) => m.t < 0.5);
     this.drops.forEach((d) => (d.t += dt));
@@ -663,12 +682,120 @@ export class World {
     d = Math.atan2(Math.sin(d), Math.cos(d));
     rig.root.rotation.y += d * Math.min(1, dt * 10);
     const sw = walking ? Math.sin(walkT * cadence) * 0.6 : 0;
-    rig.legL.rotation.x = sw;
-    rig.legR.rotation.x = -sw;
-    rig.armL.rotation.x = -sw * 0.7;
-    rig.armR.rotation.x = sw * 0.7;
-    rig.head.rotation.y = walking ? 0 : Math.sin(walkT * 0.7) * 0.25;
+    rig.body.position.set(0, 0, 0);
+    rig.body.rotation.set(0, 0, 0);
+    rig.legL.rotation.set(sw, 0, 0);
+    rig.legR.rotation.set(-sw, 0, 0);
+    rig.armL.rotation.set(-sw * 0.7, 0, 0);
+    rig.armR.rotation.set(sw * 0.7, 0, 0);
+    rig.head.rotation.set(0, walking ? 0 : Math.sin(walkT * 0.7) * 0.25, 0);
     return sw;
+  }
+
+  /** Pose the player for the habit being logged, and show only that action's props. */
+  private animateAction(rig: CharacterRig, id: ActionId | null, t: number) {
+    const show: Partial<Record<PropId, boolean>> = {};
+    const { body, legL, legR, armL, armR, head } = rig;
+    const s = (f: number) => Math.sin(t * f);
+    switch (id) {
+      case "swing":
+        show.pick = true;
+        armR.rotation.x = -1.6 - Math.cos(t * 9) * 1.0;
+        break;
+      case "call":
+        show.phone = true;
+        armR.rotation.set(-2.5, 0, -0.55);
+        armL.rotation.set(-0.6 - Math.max(0, s(3)) * 0.6, 0, 0.2);
+        head.rotation.set(0.1 + s(4) * 0.08, 0.15, 0.12);
+        break;
+      case "type":
+        show.laptop = true;
+        armL.rotation.set(-1.15 + s(22) * 0.06, 0, 0.25);
+        armR.rotation.set(-1.15 - s(22) * 0.06, 0, -0.25);
+        head.rotation.x = 0.3;
+        break;
+      case "write":
+        show.ledger = true;
+        show.quill = true;
+        armL.rotation.set(-1.2, 0, 0.45);
+        armR.rotation.set(-1.0 + s(14) * 0.05, 0, -0.35 + s(9) * 0.08);
+        head.rotation.x = 0.35;
+        break;
+      case "lift": {
+        show.dumbL = show.dumbR = true;
+        const c = (1 - Math.cos(t * 5)) / 2;
+        armL.rotation.x = -c * 2.3;
+        armR.rotation.x = -((1 - Math.cos(t * 5 + Math.PI)) / 2) * 2.3;
+        body.position.y = -c * 0.02;
+        break;
+      }
+      case "jog": {
+        const j = s(15);
+        legL.rotation.x = j * 0.9;
+        legR.rotation.x = -j * 0.9;
+        armL.rotation.set(-0.6 - j * 0.6, 0, 0);
+        armR.rotation.set(-0.6 + j * 0.6, 0, 0);
+        body.position.y = Math.abs(j) * 0.07;
+        break;
+      }
+      case "sleep":
+        show.bedroll = true;
+        body.rotation.x = -Math.PI / 2;
+        body.position.set(0, 0.13 + s(2) * 0.006, 0.0);
+        armL.rotation.set(0, 0, -0.15);
+        armR.rotation.set(0, 0, 0.15);
+        break;
+      case "meditate": {
+        body.position.y = -0.4 + s(1.6) * 0.008;
+        legL.rotation.set(-1.45, 0, -0.55);
+        legR.rotation.set(-1.45, 0, 0.55);
+        armL.rotation.set(-0.45, 0, -0.35);
+        armR.rotation.set(-0.45, 0, 0.35);
+        head.rotation.x = 0.12;
+        break;
+      }
+      case "read":
+        show.book = true;
+        armL.rotation.set(-1.25, 0, 0.5);
+        armR.rotation.set(-1.25, 0, -0.5);
+        head.rotation.set(0.4, 0, 0);
+        if (Math.floor(t / 0.9) % 2) head.rotation.y = 0.08;
+        break;
+      case "talk":
+        armL.rotation.set(-0.8 - Math.max(0, s(4)) * 0.6, 0, -0.2 - s(4) * 0.2);
+        armR.rotation.set(-0.8 - Math.max(0, -s(4)) * 0.6, 0, 0.2 - s(4) * 0.2);
+        head.rotation.set(s(2.5) * 0.1, s(1.5) * 0.15, 0);
+        break;
+      case "coins":
+        show.coinbag = true;
+        armL.rotation.set(-1.0, 0, 0.3);
+        armR.rotation.set(-1.1 + Math.abs(s(6)) * 0.3, 0, -0.35);
+        head.rotation.x = 0.3;
+        break;
+      case "drink":
+        show.mug = true;
+        armR.rotation.x = -1.2 - Math.max(0, s(4)) * 1.2;
+        break;
+      case "smoke":
+        show.joint = true;
+        armR.rotation.set(-1.0 - Math.max(0, s(2.8)) * 1.5, 0, -0.3 * Math.max(0, s(2.8)));
+        break;
+      case "eat":
+        show.treat = true;
+        armR.rotation.set(-1.2 - Math.max(0, s(6)) * 1.1, 0, -0.25);
+        break;
+      case "scroll":
+        show.phone = true;
+        armR.rotation.set(-1.1, 0, -0.15);
+        armL.rotation.set(-1.0, 0, 0.35);
+        head.rotation.set(0.45, 0, 0);
+        break;
+      case "bet":
+        show.dice = true;
+        armR.rotation.set(-1.4 + s(30) * 0.15, 0, -0.2);
+        break;
+    }
+    for (const k of Object.keys(rig.props) as PropId[]) rig.props[k].visible = !!show[k];
   }
   private updateNpcs(dt: number) {
     for (const n of this.npcs) {
@@ -934,9 +1061,11 @@ export class World {
   /** Called when the player picks a habit from a station menu. */
   startAction(h: Habit) {
     const P = this.P;
-    P.action = { habit: h, neg: h.type === "neg" };
+    const id = actionFor(h);
+    P.action = { habit: h, neg: h.type === "neg", id };
     P.actionT = 0;
-    this.cb.chat(`You ${h.type === "neg" ? "give in and" : "start to"} ${h.type === "neg" ? "log" : "work on"}: ${h.name}.`, "sys");
+    P.fxT = 0.2;
+    this.cb.chat(ACTION[id].start.replace("{h}", h.name), "sys");
   }
   private finishAction() {
     const P = this.P;

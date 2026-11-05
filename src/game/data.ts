@@ -27,6 +27,8 @@ export interface Habit {
   xp: number;
   type: HabitType;
   place?: VicePlace;
+  /** Animation played when logged (see actions.ts). Missing = picked from the name. */
+  action?: string;
 }
 
 /** logs[dayKey][habitId] = rep count */
