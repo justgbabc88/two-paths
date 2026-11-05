@@ -138,6 +138,9 @@ export interface CharacterRig {
   head: THREE.Group;
   pick: THREE.Group;
   mug: THREE.Group;
+  joint: THREE.Group;
+  phone: THREE.Group;
+  treat: THREE.Group;
 }
 
 export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
@@ -233,7 +236,24 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   mug.add(part(new THREE.TorusGeometry(0.04, 0.012, 4, 8, Math.PI), "#6b4626", 0.065, 0, 0).rotateZ(-Math.PI / 2));
   mug.position.set(0, -0.44, 0.06);
   armR.add(mug);
-  pick.visible = mug.visible = false;
+  const joint = new THREE.Group();
+  joint.add(part(new THREE.CylinderGeometry(0.012, 0.016, 0.12, 6).rotateZ(Math.PI / 2), "#f2ede0"));
+  joint.add(part(new THREE.SphereGeometry(0.016, 6, 4), "#ff7a2a", 0.065, 0, 0));
+  joint.position.set(0, -0.44, 0.04);
+  armR.add(joint);
+  const phone = new THREE.Group();
+  phone.add(part(new THREE.BoxGeometry(0.08, 0.14, 0.015), "#1c1c22"));
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.065, 0.12), new THREE.MeshBasicMaterial({ color: "#8fb8ff" }));
+  screen.position.z = 0.009;
+  phone.add(screen);
+  phone.position.set(0, -0.46, 0.07);
+  phone.rotation.x = -1.1;
+  armR.add(phone);
+  const treat = new THREE.Group();
+  treat.add(part(new THREE.TorusGeometry(0.05, 0.026, 6, 10), "#d95f8f"));
+  treat.position.set(0, -0.46, 0.06);
+  armR.add(treat);
+  pick.visible = mug.visible = joint.visible = phone.visible = treat.visible = false;
   if (look.staff) {
     const st = part(new THREE.CylinderGeometry(0.02, 0.025, 1.3, 6), "#6b4a2a", 0, -0.2, 0.05);
     armL.add(st);
@@ -246,7 +266,7 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   sh.position.y = 0.02;
   root.add(sh);
   if (look.scale) body.scale.setScalar(look.scale);
-  return { root, body, legL, legR, armL, armR, head, pick, mug };
+  return { root, body, legL, legR, armL, armR, head, pick, mug, joint, phone, treat };
 }
 
 // ---------------- nature (instanced) ----------------
@@ -449,6 +469,65 @@ function tavern(): THREE.Group {
   return g;
 }
 
+function smokeShack(): THREE.Group {
+  const g = new THREE.Group();
+  // crooked plank walls, lean-to roof, a haze-stained window
+  const walls = box(1.5, 1.0, 1.3, "#6e5a40", 0, 0.5, -0.1);
+  walls.rotation.z = 0.03;
+  g.add(walls);
+  for (let i = 0; i < 6; i++) g.add(box(0.03, 0.95, 0.02, "#4a3a28", -0.65 + i * 0.26, 0.5, 0.56));
+  const roof = box(1.8, 0.08, 1.7, "#4c4a3e", 0, 1.12, -0.05);
+  roof.rotation.x = -0.18;
+  roof.rotation.z = 0.05;
+  g.add(roof);
+  g.add(box(0.4, 0.72, 0.05, "#2e2418", -0.3, 0.36, 0.57));
+  g.add(box(0.36, 0.3, 0.05, "#8fa07a", 0.4, 0.62, 0.57, { emissive: "#2a3a1a" }));
+  g.add(box(0.3, 0.05, 0.3, "#5d5a54", 0.65, 0.04, 0.85)); // ashtray stone
+  g.add(cyl(0.18, 0.18, 0.3, 8, "#6b4a2a", -0.62, 0.15, 0.8)); // stool
+  const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 5), mat("#5e8a3a"));
+  leaf.position.set(0.0, 1.0, 0.6);
+  leaf.rotation.x = 0.4;
+  g.add(leaf);
+  return g;
+}
+function sweetStall(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(1.7, 0.5, 0.5, "#e8d8c0", 0, 0.25, 0.12));
+  for (const x of [-0.85, 0.85]) for (const z of [-0.3, 0.36]) g.add(box(0.07, 1.4, 0.07, "#c76a8a", x, 0.7, z));
+  for (let i = 0; i < 7; i++) {
+    const s = box(0.27, 0.04, 0.95, i % 2 ? "#f4e7f0" : "#d95f8f", -0.81 + i * 0.27, 1.36, 0.05);
+    s.rotation.x = 0.32;
+    g.add(s);
+  }
+  const donut = new THREE.TorusGeometry(0.07, 0.035, 6, 10);
+  ["#d95f8f", "#7a4a2a", "#f2d24a", "#9ad0e8"].forEach((c, i) => {
+    const d = new THREE.Mesh(donut, mat(c));
+    d.rotation.x = -Math.PI / 2;
+    d.position.set(-0.6 + i * 0.22, 0.56, 0.15);
+    g.add(d);
+  });
+  g.add(cyl(0.12, 0.1, 0.18, 8, "#f4f0e6", 0.55, 0.6, 0.12));
+  const swirl = new THREE.Mesh(new THREE.IcosahedronGeometry(0.11, 0), mat("#f6c6d8"));
+  swirl.position.set(0.55, 0.75, 0.12);
+  g.add(swirl);
+  return g;
+}
+function den(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(1.6, 1.05, 1.4, "#55505a", 0, 0.52, -0.05));
+  g.add(gableX(1.9, 1.75, 0.6, "#3b3644", 1.05));
+  g.add(box(0.42, 0.75, 0.05, "#2a2630", 0, 0.38, 0.66));
+  // drawn curtains with screen glow leaking through
+  for (const x of [-0.5, 0.5]) {
+    g.add(box(0.36, 0.34, 0.05, "#5a7ec8", x, 0.66, 0.66, { emissive: "#3a5aa8" }));
+    g.add(box(0.12, 0.38, 0.06, "#6a3a4a", x - 0.12, 0.66, 0.68));
+    g.add(box(0.12, 0.38, 0.06, "#6a3a4a", x + 0.12, 0.66, 0.68));
+  }
+  g.add(box(0.05, 0.5, 0.05, "#2a2630", 0.55, 1.6, -0.3)); // aerial
+  g.add(box(0.4, 0.04, 0.04, "#2a2630", 0.55, 1.82, -0.3));
+  return g;
+}
+
 export function makeStation(id: StationId): THREE.Group {
   switch (id) {
     case "wealth": return goldMine();
@@ -458,6 +537,9 @@ export function makeStation(id: StationId): THREE.Group {
     case "health": return trainingYard();
     case "relationship": return cottage();
     case "tavern": return tavern();
+    case "shack": return smokeShack();
+    case "sweets": return sweetStall();
+    case "den": return den();
   }
 }
 
@@ -465,4 +547,5 @@ export function makeStation(id: StationId): THREE.Group {
 export const CHIMNEYS: Partial<Record<StationId, [number, number, number]>> = {
   relationship: [0.75, 2.3, -0.3],
   tavern: [-0.55, 2.9, -0.4],
+  shack: [0.0, 1.0, 0.6],
 };

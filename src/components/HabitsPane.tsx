@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { SK, SKILLS, type GameState, type Habit, type HabitType, type SkillId } from "../game/data";
+import { SK, SKILLS, VICE_PLACES, type GameState, type Habit, type HabitType, type SkillId, type VicePlace } from "../game/data";
 import { dayKey, parseKey } from "../game/logic";
 
 interface Props {
@@ -27,6 +27,7 @@ export function HabitsPane(p: Props) {
   const [skill2, setSkill2] = useState<SkillId | "">("");
   const [xp, setXp] = useState("100");
   const [type, setType] = useState<HabitType>("pos");
+  const [place, setPlace] = useState<VicePlace>("tavern");
   const [importText, setImportText] = useState("");
   const log = p.state.logs[p.viewDay] || {};
   const today = dayKey(new Date());
@@ -38,7 +39,7 @@ export function HabitsPane(p: Props) {
       return;
     }
     const x = Math.max(1, Math.min(5000, Number(xp) || 100));
-    p.onAdd({ name: n, skill, skill2: skill2 === skill ? "" : skill2, xp: x, type });
+    p.onAdd({ name: n, skill, skill2: skill2 === skill ? "" : skill2, xp: x, type, ...(type === "neg" ? { place } : {}) });
     setName("");
   };
 
@@ -93,12 +94,24 @@ export function HabitsPane(p: Props) {
             </select>
           </label>
         </div>
+        {type === "neg" && (
+          <label>
+            Where it happens
+            <select value={place} onChange={(e) => setPlace(e.target.value as VicePlace)}>
+              {VICE_PLACES.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.ico} {v.name} ({v.hint})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <div>
           <button className="btn primary" onClick={add}>
             Add habit
           </button>
         </div>
-        <p className="note">A rep that would change your year is 500+. A small one is 25. Tear-down habits live at the tavern.</p>
+        <p className="note">A rep that would change your year is 500+. A small one is 25. Tear-down habits live at the tavern, the smoke shack, the sweet stall or the den.</p>
       </div>
       <h2 className="s">Your habits</h2>
       <div>
@@ -113,6 +126,7 @@ export function HabitsPane(p: Props) {
                 <div className="sub">
                   {h.type === "neg" ? "Tears down" : "Builds"} {SK[h.skill].name}
                   {h.skill2 ? " (+" + SK[h.skill2].name + ")" : ""} · {h.xp} XP
+                  {h.type === "neg" ? " · " + VICE_PLACES.find((v) => v.id === (h.place ?? "tavern"))!.name : ""}
                 </div>
               </div>
               <button className="btn sm" onClick={() => p.onRemove(h)}>

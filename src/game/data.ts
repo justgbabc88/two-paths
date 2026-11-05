@@ -10,6 +10,15 @@ export interface Skill {
 
 export type HabitType = "pos" | "neg";
 
+/** Where a tear-down habit happens in the world. Missing = the tavern (v1 behaviour). */
+export type VicePlace = "tavern" | "shack" | "sweets" | "den";
+export const VICE_PLACES: { id: VicePlace; name: string; ico: string; hint: string }[] = [
+  { id: "tavern", name: "Tavern", ico: "🍺", hint: "drinking, betting" },
+  { id: "shack", name: "Smoke shack", ico: "🍃", hint: "weed, vaping, cigarettes" },
+  { id: "sweets", name: "Sweet stall", ico: "🍩", hint: "junk food, sugar" },
+  { id: "den", name: "The den", ico: "📱", hint: "doomscrolling, binges" },
+];
+
 export interface Habit {
   id: string;
   name: string;
@@ -17,6 +26,7 @@ export interface Habit {
   skill2: SkillId | "";
   xp: number;
   type: HabitType;
+  place?: VicePlace;
 }
 
 /** logs[dayKey][habitId] = rep count */
@@ -62,6 +72,10 @@ export const SEED: Omit<Habit, "id">[] = [
   { name: "Read 20 pages", skill: "learning", skill2: "", xp: 200, type: "pos" },
   { name: "Reviewed finances / invested", skill: "wealth", skill2: "", xp: 300, type: "pos" },
   { name: "Meditation", skill: "mind", skill2: "", xp: 200, type: "pos" },
-  { name: "Doomscrolled an hour", skill: "mind", skill2: "business", xp: 200, type: "neg" },
-  { name: "Junk food / drinking", skill: "health", skill2: "", xp: 250, type: "neg" },
+  { name: "Doomscrolled an hour", skill: "mind", skill2: "business", xp: 200, type: "neg", place: "den" },
+  { name: "Had 3+ drinks", skill: "health", skill2: "mind", xp: 300, type: "neg", place: "tavern" },
+  { name: "Smoked weed", skill: "mind", skill2: "learning", xp: 250, type: "neg", place: "shack" },
+  { name: "Vaped / smoked cigarettes", skill: "health", skill2: "", xp: 150, type: "neg", place: "shack" },
+  { name: "Junk food binge", skill: "health", skill2: "", xp: 200, type: "neg", place: "sweets" },
+  { name: "Placed a bet", skill: "wealth", skill2: "mind", xp: 250, type: "neg", place: "tavern" },
 ];

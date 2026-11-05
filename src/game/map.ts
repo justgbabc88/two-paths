@@ -1,7 +1,7 @@
 // World layout: tile map, stations, collision and pathfinding.
 // Legend:  . grass  , flowers  = path  ~ water  h/v bridge (E-W / N-S)
 //          T tree  P pine  r rock  b bush  f fence   (T P r b f and ~ block movement)
-import type { Habit, SkillId } from "./data";
+import { SK, VICE_PLACES, type Habit, type SkillId, type VicePlace } from "./data";
 
 export const T = 32; // on-screen tile size (art is 16px, drawn at 2x)
 
@@ -29,7 +29,7 @@ export const MAP: string[] = [
   "TT........bb.....=......T.......~....TPT",
   "TP...............=..............~.....TT",
   "TT...............=.............P~~....PT",
-  "TTT.,............=...............~....TT",
+  "TTT.==============...............~....TT",
   "T.T..............................~r....T",
   "PP........,......................~...T.T",
   "P..,,.,.....,...T................~...T.T",
@@ -41,7 +41,7 @@ export const ROWS = MAP.length;
 export const COLS = MAP[0].length;
 export const START = { x: 20, y: 14 };
 
-export type StationId = SkillId | "tavern";
+export type StationId = SkillId | VicePlace;
 export interface Station {
   id: StationId;
   skill: SkillId | null;
@@ -65,11 +65,19 @@ export const STATIONS: Station[] = [
   { id: "health", skill: "health", name: "Training yard", x: 18, y: 22, w: 3, h: 2, ax: 17, ay: 23, verb: "train", examine: "A training dummy and some iron. It never gets easier, you get stronger." },
   { id: "relationship", skill: "relationship", name: "Cottage", x: 23, y: 11, w: 3, h: 2, ax: 24, ay: 13, verb: "visit", examine: "Home. The hearth is warm." },
   { id: "tavern", skill: null, name: "Tavern", x: 15, y: 11, w: 2, h: 2, ax: 16, ay: 13, verb: "drink", examine: "The tavern. Everyone ends up here sometimes. Be honest about it." },
+  { id: "shack", skill: null, name: "Smoke shack", x: 4, y: 21, w: 2, h: 2, ax: 5, ay: 23, verb: "light up", examine: "A leaning shack in a permanent haze. Time goes soft in here." },
+  { id: "sweets", skill: null, name: "Sweet stall", x: 8, y: 22, w: 2, h: 1, ax: 8, ay: 23, verb: "snack", examine: "Bright, sticky and always open. It's never just one." },
+  { id: "den", skill: null, name: "The den", x: 11, y: 21, w: 2, h: 2, ax: 12, ay: 23, verb: "scroll", examine: "Curtains drawn, screens glowing. You look up and two hours are gone." },
 ];
 
-/** Habits offered at a station (v1 rule). */
+export const isVice = (id: StationId): id is VicePlace => VICE_PLACES.some((v) => v.id === id);
+/** Icon shown on labels and the minimap. */
+export const stationIcon = (s: Station) => (s.skill ? SK[s.skill].ico : VICE_PLACES.find((v) => v.id === s.id)!.ico);
+
+/** Habits offered at a station: build-up habits at their skill's station (v1 rule),
+ *  tear-down habits at their chosen vice place (the tavern if none is set, as in v1). */
 export const habitsAtStation = (s: Station, habits: Habit[]): Habit[] =>
-  habits.filter((h) => (s.id === "tavern" ? h.type === "neg" : h.type === "pos" && (h.skill === s.skill || h.skill2 === s.skill)));
+  habits.filter((h) => (isVice(s.id) ? h.type === "neg" && (h.place ?? "tavern") === s.id : h.type === "pos" && (h.skill === s.skill || h.skill2 === s.skill)));
 
 export const cell = (x: number, y: number): string => (x < 0 || y < 0 || x >= COLS || y >= ROWS ? "T" : MAP[y][x]);
 export const isWater = (c: string) => c === "~" || c === "h" || c === "v";

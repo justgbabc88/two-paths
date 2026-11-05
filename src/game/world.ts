@@ -4,7 +4,7 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, ROWS, START, STATIONS, blocked, cell, findPath, isWater, stationAt, type Pt, type Station } from "./map";
+import { COLS, ROWS, START, STATIONS, blocked, cell, findPath, isWater, stationAt, stationIcon, type Pt, type Station } from "./map";
 import { CHIMNEYS, hash, makeBridge, makeCharacter, makeStation, mat, natureGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 
@@ -393,7 +393,7 @@ export class World {
       ctx.save();
       ctx.translate(ox + (s.x + s.w / 2) * MM.scale, oy + (s.y + s.h / 2) * MM.scale);
       ctx.rotate(-yaw);
-      ctx.fillText(s.skill ? SK[s.skill].ico : "🍺", 0, 4);
+      ctx.fillText(stationIcon(s), 0, 4);
       ctx.restore();
     });
     if (P.path.length) {
@@ -459,7 +459,7 @@ export class World {
       const g = this.stationGroups.find((g) => g.userData.station === s)!;
       const p = this.project(g.position.x, g.position.y, g.position.z + s.h / 2 + 0.15);
       if (p.behind || p.x < -40 || p.x > VIEW_W + 40 || p.y < -20 || p.y > VIEW_H + 20) return;
-      const lab = (s.skill ? SK[s.skill].ico : "🍺") + " " + s.name;
+      const lab = stationIcon(s) + " " + s.name;
       const tw = ctx.measureText(lab).width + 8;
       ctx.fillStyle = "rgba(0,0,0,.5)";
       ctx.fillRect(p.x - tw / 2, p.y, tw, 13);
@@ -602,9 +602,14 @@ export class World {
     const wx = P.px + 0.5,
       wz = P.py + 0.5;
     const sw = this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
+    const place = P.action?.neg ? (P.action.habit.place ?? "tavern") : null;
     rig.pick.visible = !!P.action && !P.action.neg;
-    rig.mug.visible = !!P.action && P.action.neg;
+    rig.mug.visible = place === "tavern";
+    rig.joint.visible = place === "shack";
+    rig.phone.visible = place === "den";
+    rig.treat.visible = place === "sweets";
     if (P.action && !P.action.neg) rig.armR.rotation.x = -1.6 - Math.cos(P.actionT * 9) * 1.0;
+    else if (place === "den") rig.armR.rotation.x = -1.1;
     else if (P.action) rig.armR.rotation.x = -1.2 - Math.max(0, Math.sin(P.actionT * 4)) * 1.2;
     else rig.armR.rotation.x = sw * 0.8;
     // camera follows the player

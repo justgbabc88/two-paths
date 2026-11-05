@@ -175,3 +175,39 @@ export function tip(w: Wanderer, avoid: number[]): { text: string; index: number
   const index = (pool.length ? pool : w.tips.map((_, i) => i))[Math.floor(Math.random() * (pool.length || w.tips.length))];
   return { text: w.tips[index], index };
 }
+
+/** Plain-text summary of the player's record that a Claude-powered wanderer can read. */
+export function buildRecord(state: GameState, c: Computed): string {
+  const L: string[] = [];
+  const today = new Date();
+  L.push(`Today: ${dayKey(today)}. Days of data in the pace window: ${c.days}. Days with any training: ${c.daysTrained}.`);
+  L.push("Skills (level, XP, pace XP/day over the last 30 days, days since last trained, level in 1 year if they keep going / if they let it slide):");
+  (Object.keys(SK) as SkillId[]).forEach((id) => {
+    const since = lastTrained(state, id);
+    L.push(`- ${SK[id].name}: level ${levelFor(c.xp[id])}, ${fmt(c.xp[id])} XP, pace ${c.rate[id] >= 0 ? "+" : ""}${fmt(c.rate[id])}/day, ${since === null ? "never trained" : since === 0 ? "trained today" : `last trained ${since} days ago`}, 1y keep ${levelFor(project(c.xp[id], c.rate[id], 1))} / slide ${levelFor(project(c.xp[id], c.oppRate[id], 1))}`);
+  });
+  const reps = (hid: string, days: number) => {
+    let n = 0;
+    const d = new Date();
+    for (let i = 0; i < days; i++) {
+      n += (state.logs[dayKey(d)] || {})[hid] || 0;
+      d.setDate(d.getDate() - 1);
+    }
+    return n;
+  };
+  L.push("Habits (type, skill, XP per rep, where, current streak, reps in last 7 / 30 days):");
+  if (!state.habits.length) L.push("- none yet");
+  state.habits.forEach((h) =>
+    L.push(`- "${h.name}": ${h.type === "neg" ? "tears down" : "builds"} ${SK[h.skill].name}${h.skill2 ? " (+" + SK[h.skill2].name + ")" : ""}, ${h.xp} XP${h.type === "neg" ? ", at the " + (h.place ?? "tavern") : ""}, streak ${streak(state, h.id)}d, ${reps(h.id, 7)} / ${reps(h.id, 30)}`),
+  );
+  const names = new Map(state.habits.map((h) => [h.id, h.name]));
+  L.push("Last 14 days of logs:");
+  const d = new Date();
+  for (let i = 0; i < 14; i++) {
+    const log = state.logs[dayKey(d)] || {};
+    const items = Object.entries(log).filter(([id]) => names.has(id)).map(([id, n]) => `${names.get(id)} x${n}`);
+    L.push(`- ${dayKey(d)}: ${items.length ? items.join(", ") : "nothing logged"}`);
+    d.setDate(d.getDate() - 1);
+  }
+  return L.join("\n");
+}
