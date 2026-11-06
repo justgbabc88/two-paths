@@ -4,7 +4,7 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, COURT, FERRY, LOUNGERS, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
+import { COLS, COURT, FERRY, LOUNGERS, onIsland, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
 import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
 import { CHIMNEYS, buildStation, hash, makeBall, makeFerry, makeGuardianStatue, makeLounger, makePalm, makeUmbrella, makeVolleyNet, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
@@ -269,6 +269,7 @@ export class World {
   private ferry!: THREE.Group;
   private ferrySide: "mainland" | "island" = "mainland";
   private sail: { t: number; dur: number; pts: THREE.Vector3[]; to: "mainland" | "island" } | null = null;
+  private afterSail: (() => void) | null = null;
   private ball!: THREE.Mesh;
   private courtNet!: THREE.Group;
   private kiki!: CharacterRig;
@@ -912,7 +913,7 @@ export class World {
     if (this.keys.has("ArrowDown")) this.cam.pitch = Math.max(0.42, this.cam.pitch - dt * 1.2);
     // movement
     let walking = false;
-    if (this.sail) this.updateSail(dt);
+    if (this.sail) this.updateSail(realDt);
     if (this.vb.active) this.updateVolley(dt);
     if (P.path.length && !P.action && !this.sail) {
       walking = true;
@@ -1308,6 +1309,38 @@ export class World {
       this.ferry.rotation.y = Math.PI;
     }
   }
+  /** True when (x,y) is across the water from where the player stands. */
+  private acrossWater(x: number, y: number) {
+    return onIsland(x, y) !== onIsland(this.P.x, this.P.y);
+  }
+  /** Walk to the ferry on this side, sail across, then do `next`. */
+  private viaFerry(next: () => void) {
+    const P = this.P;
+    const side = onIsland(P.x, P.y) ? "island" : "mainland";
+    if (this.ferrySide !== side) this.parkFerry(side); // the ferry comes back for you
+    const dock = FERRY[side];
+    const go = () => {
+      this.afterSail = next;
+      this.startSail();
+    };
+    if (P.x === dock.x && P.y === dock.y) {
+      go();
+      return;
+    }
+    const path = findPath(P.x, P.y, dock.x, dock.y);
+    if (!path) {
+      this.cb.chat("You can't find a way to the ferry from here.", "sys");
+      return;
+    }
+    P.path = path;
+    P.pendingStation = null;
+    P.pendingNpc = null;
+    P.pendingFork = false;
+    P.pendingShop = false;
+    P.pendingGarden = false;
+    P.pendingArrive = go;
+    this.cb.chat(side === "mainland" ? "That's out on Pen Gu Island. You head for the ferry at the end of the fishing pier." : "That's back on the mainland. You head for the ferry.", "hint");
+  }
   private startSail() {
     const to = this.ferrySide === "mainland" ? "island" : "mainland";
     const a = new THREE.Vector3(FERRY.mainland.x + 0.5, 0, FERRY.mainland.y + 1.45),
@@ -1341,6 +1374,9 @@ export class World {
       this.parkFerry(s.to);
       this.sail = null;
       this.cb.chat(s.to === "island" ? "Welcome to Pen Gu Island. Warm sand, a net, and nowhere to be." : "You step back onto the pier.", "lvl");
+      const next = this.afterSail;
+      this.afterSail = null;
+      next?.();
     }
   }
   // ---- loungers ----
@@ -1623,7 +1659,25 @@ export class World {
       }
       const path = findPath(P.x, P.y, dest.x, dest.y);
       if (!path) {
-        this.cb.chat(p.ferry && this.ferrySide === "island" ? "The ferry is waiting at the island." : p.ferry ? "The ferry is waiting at the mainland pier." : "You can't reach that from here.", "sys");
+        if (!p.ferry && this.acrossWater(dest.x, dest.y)) {
+          this.viaFerry(() => {
+            const P2 = this.P;
+            const again = findPath(P2.x, P2.y, dest.x, dest.y);
+            if (!again) return;
+            if (!again.length) arrive();
+            else {
+              P2.path = again;
+              P2.pendingArrive = arrive;
+            }
+          });
+          return;
+        }
+        if (p.ferry) {
+          // the ferry is moored on the other side: call it over
+          this.viaFerry(() => {});
+          return;
+        }
+        this.cb.chat("You can't reach that from here.", "sys");
         return;
       }
       P.path = path;
@@ -1717,7 +1771,8 @@ export class World {
     if (P.action) return;
     const path = findPath(P.x, P.y, tx, ty);
     if (!path) {
-      this.cb.chat("You can't reach that.", "sys");
+      if (this.acrossWater(tx, ty)) this.viaFerry(() => this.walkTo([tx, ty]));
+      else this.cb.chat("You can't reach that.", "sys");
       return;
     }
     P.path = path;
