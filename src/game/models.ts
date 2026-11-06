@@ -1238,3 +1238,28 @@ export function makeFerry(): THREE.Group {
   g.add(box(0.5, 0.18, 0.04, "#2a2a2a", 0, 1.25, 0.06)).children.at(-1)!.visible = false;
   return g;
 }
+
+/** Banana plant or fern for the island's jungle. */
+export function makeTropicalPlant(seed: number): THREE.Group {
+  const g = new THREE.Group();
+  const banana = hash(seed, 3) > 0.45;
+  if (banana) {
+    g.add(cyl(0.05, 0.07, 0.7, 5, "#6a8a3a", 0, 0.35, 0));
+    for (let i = 0; i < 6; i++) {
+      const leaf = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.9, 4).rotateZ(Math.PI / 2).translate(0.45, 0, 0).scale(1, 0.18, 1), mat(i % 2 ? "#4f9a3a" : "#5fae44"));
+      leaf.position.y = 0.7;
+      leaf.rotation.set(0, (i / 6) * Math.PI * 2 + seed, -0.25 - hash(i, seed) * 0.5);
+      g.add(leaf);
+    }
+  } else {
+    for (let i = 0; i < 8; i++) {
+      const frond = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.6, 3).rotateZ(Math.PI / 2).translate(0.3, 0, 0).scale(1, 0.25, 1), mat(i % 2 ? "#2f7a34" : "#3a8a3c"));
+      frond.position.y = 0.12;
+      frond.rotation.set(0, (i / 8) * Math.PI * 2 + seed, -0.5 - hash(seed, i) * 0.4);
+      g.add(frond);
+    }
+    if (hash(seed, 9) > 0.5) for (let i = 0; i < 3; i++) g.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), mat(["#e0405a", "#f2803a", "#f25aa0"][i]))).children.at(-1)!.position.set(Math.cos(i * 2.1) * 0.22, 0.25, Math.sin(i * 2.1) * 0.22);
+  }
+  g.rotation.y = seed;
+  return g;
+}

@@ -6,7 +6,7 @@ import * as THREE from "three";
 import { SK, type Habit } from "./data";
 import { COLS, COURT, FERRY, LOUNGERS, onIsland, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
 import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
-import { CHIMNEYS, buildStation, hash, makeBall, makeFerry, makeGuardianStatue, makeLounger, makePalm, makeUmbrella, makeVolleyNet, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
+import { CHIMNEYS, buildStation, hash, makeTropicalPlant, makeBall, makeFerry, makeGuardianStatue, makeLounger, makePalm, makeUmbrella, makeVolleyNet, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { DEFAULT_GARDEN, drawGarden, leavesFor } from "./garden";
 import type { Garden } from "./data";
@@ -83,8 +83,8 @@ for (let j = 0; j <= ROWS; j++) {
     const st = [footprintOf(i - 1, j - 1), footprintOf(i, j - 1), footprintOf(i - 1, j), footprintOf(i, j)].find(Boolean);
     if (st) h = stationBase.get(st.id)!;
     if ([[i - 1, j - 1], [i, j - 1], [i - 1, j], [i, j]].some(([x, y]) => isGarden(x, y))) h = GARDEN_BASE;
-    const isle = tiles.filter((c) => "knyL".includes(c)).length;
-    if (isle) h = 0.25 + (tiles.filter((c) => c === "k").length * 0.06) + hash(i, j) * 0.04;
+    const isle = j >= 56 ? tiles.filter((c) => "jnyLF,r".includes(c)).length : 0;
+    if (isle) h = 0.22 + tiles.filter((c) => "jLF,".includes(c)).length * 0.07 + hash(i, j) * 0.04;
     const rock = tiles.filter((c) => c === "M").length;
     if (rock) h += rock * 0.3 + (rock === 4 ? 0.7 + hash(i * 1.7, j * 2.3) * 1.6 + Math.max(0, 6 - j) * 0.18 : 0);
     if (wet === 4) h = -0.55;
@@ -118,9 +118,10 @@ function tileColor(x: number, y: number): THREE.Color {
   let base: string;
   if (c === "M") base = corner[y]?.[x] > 3.0 ? "#a8a59c" : corner[y]?.[x] > 1.8 ? (hash(x, y) > 0.5 ? "#5e5a52" : "#67625a") : hash(x, y) > 0.5 ? "#4e4b44" : "#57534a";
   else if (c === "w") base = "#7a6a3a";
-  else if (c === "k") base = "#2e3036";
-  else if (c === "n" || c === "L") base = "#ece4cf";
-  else if (c === "y") base = "#e0952a";
+  else if (y >= 56 && (c === "j" || c === "L" || c === "F" || c === ",")) base = hash(x, y) > 0.5 ? "#3f8f3a" : "#47993e";
+  else if (c === "n") base = "#f3e4b8";
+  else if (c === "y") base = "#ee8a5c";
+  else if (y >= 55 && isWater(c)) base = "#d9cc98"; // pale sandy seabed under the tropical shallows
   else if (isWater(c)) base = "#4b4a36";
   else if (c === "=") base = "#86694a";
   else if (st?.id === "health") base = "#7a6143";
@@ -209,7 +210,7 @@ function buildNature(scene: THREE.Scene) {
       else if (c === "b") bushes.push({ ...base, s: 0.9 + h * 0.4, c: "#47702f" });
       else if (c === ",")
         for (let k = 0; k < 6; k++)
-          flowers.push({ x: x + 0.15 + hash(x + k, y) * 0.7, z: y + 0.15 + hash(x, y + k) * 0.7, s: 1, r: 0, c: petals[Math.floor(hash(x * k, y) * petals.length)] });
+          flowers.push({ x: x + 0.15 + hash(x + k, y) * 0.7, z: y + 0.15 + hash(x, y + k) * 0.7, s: y >= 56 ? 1.6 : 1, r: 0, c: (y >= 56 ? ["#e0405a", "#f25aa0", "#f2803a", "#fff0f0"] : petals)[Math.floor(hash(x * k, y) * 4) % (y >= 56 ? 4 : petals.length)] });
     }
   const trunk = (list: typeof trees) => list.map((t) => ({ ...t, c: "#4f3520" }));
   scene.add(instanced(natureGeo.trunk, trunk(trees)));
@@ -398,6 +399,33 @@ export class World {
           palm.position.set(x + 0.5, groundAt(x + 0.5, y + 0.5), y + 0.5);
           sc.add(palm);
         }
+    for (let y = 56; y < ROWS; y++)
+      for (let x = 0; x < COLS; x++)
+        if (cell(x, y) === "F") {
+          const pl = makeTropicalPlant(hash(x * 3, y) * 6);
+          pl.position.set(x + 0.5 + (hash(x, y * 3) - 0.5) * 0.3, groundAt(x + 0.5, y + 0.5), y + 0.5 + (hash(x * 5, y) - 0.5) * 0.3);
+          pl.scale.setScalar(0.9 + hash(y, x) * 0.6);
+          sc.add(pl);
+        }
+    {
+      // turquoise shallows hugging the island
+      const quads: { x: number; z: number }[] = [];
+      for (let y = 55; y < ROWS; y++)
+        for (let x = 0; x < COLS; x++) {
+          if (!isWater(cell(x, y))) continue;
+          let near = false;
+          for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2 && !near; dx++) if (y + dy >= 56 && "jnyLF,r".includes(cell(x + dx, y + dy))) near = true;
+          if (near) quads.push({ x: x + 0.5, z: y + 0.5 });
+        }
+      const shallow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: "#3fd0c8", transparent: true, opacity: 0.38, depthWrite: false }), quads.length);
+      const o = new THREE.Object3D();
+      quads.forEach((q, i) => {
+        o.position.set(q.x, WATER_Y + 0.035, q.z);
+        o.updateMatrix();
+        shallow.setMatrixAt(i, o.matrix);
+      });
+      sc.add(shallow);
+    }
     {
       const cz = COURT.y + COURT.h / 2,
         cx = COURT.x + COURT.w / 2;
@@ -598,7 +626,7 @@ export class World {
     for (let y = 0; y < ROWS; y++)
       for (let x = 0; x < COLS; x++) {
         const ch = cell(x, y);
-        g.fillStyle = ch === "k" ? "#24262a" : ch === "n" || ch === "L" ? "#f0eadc" : ch === "y" ? "#e0952a" : ch === "~" ? "#2f5672" : ch === "h" || ch === "v" ? "#6b4a2c" : ch === "=" ? "#9b8460" : ch === "T" || ch === "P" ? "#2f4a22" : ch === "r" ? "#77746c" : ch === "M" ? "#5e5a54" : ch === "w" ? "#b39a4a" : ch === "W" ? "#8a867c" : ch === "f" ? "#6b4a2c" : "#4f6a2f";
+        g.fillStyle = y >= 56 && "jLF,".includes(ch) ? "#3f8f3a" : ch === "n" ? "#f3e4b8" : ch === "y" ? "#ee8a5c" : ch === "~" ? "#2f5672" : ch === "h" || ch === "v" ? "#6b4a2c" : ch === "=" ? "#9b8460" : ch === "T" || ch === "P" ? "#2f4a22" : ch === "r" ? "#77746c" : ch === "M" ? "#5e5a54" : ch === "w" ? "#b39a4a" : ch === "W" ? "#8a867c" : ch === "f" ? "#6b4a2c" : "#4f6a2f";
         g.fillRect(x * MM.scale, y * MM.scale, MM.scale, MM.scale);
       }
     [...STATIONS, ...LANDMARKS].forEach((s) => {
@@ -714,7 +742,7 @@ export class World {
     });
     // the island's name, floating over the penguin
     {
-      const p = this.project(52.5, 2.2, 66);
+      const p = this.project(52.5, 2.6, 68);
       if (!p.behind && p.x > -60 && p.x < VIEW_W + 60) {
         ctx.font = "13px Silkscreen, monospace";
         const lab = "🐧 Pen Gu Island";
@@ -1305,7 +1333,7 @@ export class World {
       this.ferry.position.set(FERRY.mainland.x + 0.5, WATER_Y + 0.05, FERRY.mainland.y + 1.45);
       this.ferry.rotation.y = 0;
     } else {
-      this.ferry.position.set(FERRY.island.x + 1.5, WATER_Y + 0.05, FERRY.island.y + 1.2);
+      this.ferry.position.set(FERRY.island.x + 1.5, WATER_Y + 0.05, FERRY.island.y + 0.5);
       this.ferry.rotation.y = Math.PI;
     }
   }
@@ -1344,9 +1372,9 @@ export class World {
   private startSail() {
     const to = this.ferrySide === "mainland" ? "island" : "mainland";
     const a = new THREE.Vector3(FERRY.mainland.x + 0.5, 0, FERRY.mainland.y + 1.45),
-      b = new THREE.Vector3(FERRY.island.x + 1.5, 0, FERRY.island.y + 1.2);
-    const mid1 = new THREE.Vector3(63, 0, 55.8),
-      mid2 = new THREE.Vector3(64.5, 0, 59.5);
+      b = new THREE.Vector3(FERRY.island.x + 1.5, 0, FERRY.island.y + 0.5);
+    const mid1 = new THREE.Vector3(63.5, 0, 56.2),
+      mid2 = new THREE.Vector3(65.5, 0, 62.5);
     const pts = to === "island" ? [a, mid1, mid2, b] : [b, mid2, mid1, a];
     this.sail = { t: 0, dur: 6, pts, to };
     this.lounging = null;
