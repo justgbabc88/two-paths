@@ -9,6 +9,7 @@ import type { GameState, Habit } from "./data";
 import { dayKey, parseKey } from "./logic";
 import { actionFor } from "./actions";
 import { QUEST } from "./quests";
+import { FREEZE_PRICE, lootLog, milestoneGold, streakInfo, type Rarity } from "./rewards";
 
 export const BANK_RATE = 0.02; // per week
 export const BOUNTY_PER_QP = 40;
@@ -36,6 +37,8 @@ export interface ShopItem {
   accessory?: "satchel" | "staff";
   pet?: "dog" | "cat";
   circlet?: boolean;
+  /** Loot-only: can't be bought, only found. */
+  loot?: Rarity;
   blurb: string;
 }
 
@@ -58,6 +61,17 @@ export const ITEMS: ShopItem[] = [
   { id: "acc-staff", name: "Walking staff", slot: "accessory", price: 140, accessory: "staff", blurb: "For the long road." },
   { id: "pet-cat", name: "Cat", slot: "pet", price: 600, pet: "cat", blurb: "Follows you when it feels like it." },
   { id: "pet-dog", name: "Dog", slot: "pet", price: 800, pet: "dog", blurb: "Follows you everywhere. Very good boy." },
+  // ---- loot only: found when you log good habits ----
+  { id: "loot-moss", name: "Moss-green tunic", slot: "top", price: 0, loot: "uncommon", color: "#55702e", blurb: "Smells faintly of forest." },
+  { id: "loot-fisher", name: "Fisher's cap", slot: "hat", price: 0, loot: "uncommon", hat: "cap", color: "#3a5a6a", blurb: "Salt-stained and lucky." },
+  { id: "loot-scarf", name: "Wool scarf", slot: "hat", price: 0, loot: "uncommon", hat: "scarf", color: "#b0503a", blurb: "Hand-knitted. Warm on early mornings." },
+  { id: "loot-ember", name: "Ember tunic", slot: "top", price: 0, loot: "rare", color: "#c0501a", blurb: "Glows a little when you've been busy." },
+  { id: "loot-feather", name: "Feathered hat", slot: "hat", price: 0, loot: "rare", hat: "brim", color: "#2a6a5a", blurb: "The feather came from somewhere far away." },
+  { id: "loot-embercape", name: "Ember cape", slot: "cape", price: 0, loot: "rare", color: "#c0501a", blurb: "Warm as a hearth." },
+  { id: "loot-ivory", name: "Ivory tunic", slot: "top", price: 0, loot: "rare", color: "#e6dcc4", blurb: "Hard to keep clean. Worth it." },
+  { id: "loot-aurora", name: "Aurora tunic", slot: "top", price: 0, loot: "legendary", color: "#2aa8a0", blurb: "Shifts colour like northern lights." },
+  { id: "loot-starlit", name: "Starlit cape", slot: "cape", price: 0, loot: "legendary", color: "#3a2a78", blurb: "Woven on the longest night of the year." },
+  { id: "loot-crown", name: "Laurel crown", slot: "hat", price: 0, loot: "legendary", circlet: true, color: "#d4a52a", blurb: "Given only to those who keep showing up." },
 ];
 export const ITEM = Object.fromEntries(ITEMS.map((i) => [i.id, i])) as Record<string, ShopItem>;
 
@@ -68,6 +82,8 @@ export interface Money {
   vices: number; // spent on vices, all time
   interest: number; // bank interest, all time
   spent: number; // shop purchases
+  loot: number; // gold found as loot, all time
+  bounties: number; // streak and level milestone bounties, all time
   week: { wage: number; stipend: number; deposit: number; cost: number };
 }
 
@@ -110,8 +126,12 @@ export function money(state: GameState): Money {
     d.setDate(d.getDate() + 1);
   }
   for (const [id, r] of Object.entries(state.quests ?? {})) if (r.done && QUEST[id]) (wallet += QUEST[id].points * BOUNTY_PER_QP), (earned += QUEST[id].points * BOUNTY_PER_QP);
-  const spent = (state.owned ?? []).reduce((a, id) => a + (ITEM[id]?.price ?? 0), 0);
-  return { wallet: wallet - spent, bank, earned, vices, interest, spent, week };
+  const loot = lootLog(state).reduce((a, d) => a + d.gold, 0);
+  const bounties = streakInfo(state).bounties + milestoneGold(state);
+  wallet += loot + bounties;
+  earned += loot + bounties;
+  const spent = (state.owned ?? []).reduce((a, id) => a + (ITEM[id]?.price ?? 0), 0) + (state.freezes?.bought ?? 0) * FREEZE_PRICE;
+  return { wallet: wallet - spent, bank, earned, vices, interest, spent, loot, bounties, week };
 }
 
 export const gp = (n: number) => `${n < 0 ? "-" : ""}${Math.abs(Math.round(n)).toLocaleString()} gp`;

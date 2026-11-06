@@ -15,13 +15,16 @@ import { ShopPanel } from "./ShopPanel";
 import { GardenPanel } from "./GardenPanel";
 import { CalendarPanel } from "./CalendarPanel";
 import { habitForSit } from "../game/meditation";
-import { flowFor, gp, money, type ShopItem } from "../game/economy";
+import { ITEM, flowFor, gp, money, type ShopItem } from "../game/economy";
 import type { Custom } from "../game/data";
 import type { Wanderer } from "../game/wanderers";
 import { StatsPane } from "./StatsPane";
+import { FREEZE_PRICE, MAX_FREEZES, RARITY_COLOR, STREAK_MILESTONES, freezesNeeded, lootLog, milestoneBounty, newMilestones, streakBounty, streakInfo } from "../game/rewards";
+import { isMuted, setMuted, sfx } from "../game/sfx";
 
 type Tab = "stats" | "future" | "quests" | "habits";
 interface Line { id: number; text: string; cls?: string }
+interface Banner { id: number; kicker: string; title: string; sub?: string; color: string; big?: boolean }
 
 let lineId = 0;
 
@@ -43,6 +46,8 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [fork, setFork] = useState<{ years: number; path: "keep" | "slide" } | null>(null);
   const forkRef = useRef(fork);
   forkRef.current = fork;
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [muted, setMute] = useState(isMuted);
   const [groundMenu, setGroundMenu] = useState<{ tile: [number, number]; pos: { x: number; y: number } } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -55,6 +60,14 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   viewDayRef.current = viewDay;
 
   const c = useMemo(() => compute(state), [state]);
+  const streak = useMemo(() => streakInfo(state), [state]);
+
+  const banner = useCallback((b: Omit<Banner, "id">) => setBanners((bs) => (bs.length >= 4 ? bs : [...bs, { ...b, id: ++lineId }])), []);
+  useEffect(() => {
+    if (!banners.length) return;
+    const t = setTimeout(() => setBanners((bs) => bs.slice(1)), banners[0].big ? 3600 : 2800);
+    return () => clearTimeout(t);
+  }, [banners]);
 
   const chat = useCallback((text: string, cls?: string) => {
     setLines((ls) => [...ls, { id: ++lineId, text, cls }].slice(-60));
@@ -168,6 +181,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
       actionDone: (h) => {
         const day = viewDayRef.current;
         const before = snapLevels(stateRef.current);
+        const streakBefore = streakInfo(stateRef.current).current;
         const next = tally(stateRef.current, day, h.id, 1);
         commit(next);
         const after = snapLevels(next);
@@ -179,13 +193,45 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         else if (f.kind === "deposit") chat(`${gp(f.amount)} goes into the bank.`, "xp");
         else chat(`You earn ${gp(f.amount)}${f.kind === "wage" ? " in wages" : ""}.`, "xp");
         worldRef.current?.moneyDrop((f.kind === "cost" ? "-" : "+") + f.amount + (f.kind === "deposit" ? " bank" : ""), f.kind === "cost");
+        if (h.type === "neg") sfx.bad();
+        else sfx.coin();
         let ups = 0;
         SKILLS.forEach((s) => {
           if (after[s.id] > before[s.id]) {
             chat(`Congratulations, you just advanced a ${s.name} level. Your ${s.name} level is now ${after[s.id]}.`, "lvl");
+            banner({ kicker: "Level up!", title: `${s.ico} ${s.name} ${after[s.id]}`, sub: after[s.id] % 5 === 0 ? "Milestone reached. A bounty is on its way." : `${5 - (after[s.id] % 5)} more to the next milestone`, color: "#e0c040", big: true });
             ups++;
           } else if (after[s.id] < before[s.id]) chat(`Your ${s.name} level has dropped to ${after[s.id]}.`, "bad");
         });
+        if (ups) {
+          setTimeout(() => sfx.levelUp(), 250);
+          worldRef.current?.celebrate();
+        }
+        // loot: seeded by day, habit and rep, so this matches what the ledger says
+        if (h.type === "pos") {
+          const drop = lootLog(next).find((d) => d.day === day && d.hid === h.id && d.rep === n);
+          if (drop) {
+            const it = drop.item ? ITEM[drop.item] : drop.dup ? ITEM[drop.dup] : null;
+            setTimeout(() => sfx.loot(drop.rarity), ups ? 1400 : 350);
+            if (drop.item && it) {
+              chat(`Loot! You found a ${drop.rarity} drop: ${it.name}. It's in the store under Loot collection.`, "lvl");
+              banner({ kicker: `${drop.rarity} drop`, title: it.name, sub: "Wear it from the general store", color: RARITY_COLOR[drop.rarity], big: drop.rarity !== "uncommon" });
+            } else {
+              chat(drop.dup && it ? `Loot! Another ${it.name}. You already have one, so you sell it for ${gp(drop.gold)}.` : `Loot! You find a pouch with ${gp(drop.gold)}.`, "xp");
+              worldRef.current?.moneyDrop("+" + drop.gold + " loot", false);
+              if (drop.rarity !== "common") banner({ kicker: `${drop.rarity} drop`, title: `+${gp(drop.gold)}`, sub: drop.dup && it ? `Spare ${it.name}, sold` : "A heavy pouch of gold", color: RARITY_COLOR[drop.rarity] });
+            }
+          }
+        }
+        const streakAfter = streakInfo(next).current;
+        if (streakAfter > streakBefore) {
+          if (STREAK_MILESTONES.includes(streakAfter)) {
+            chat(`${streakAfter}-day streak! Bounty: ${gp(streakBounty(streakAfter))}.`, "lvl");
+            banner({ kicker: "Streak", title: `🔥 ${streakAfter} days`, sub: `+${gp(streakBounty(streakAfter))} bounty`, color: "#f07a2a", big: true });
+            setTimeout(() => sfx.streak(), 600);
+          } else if (streakAfter > 1) chat(`🔥 ${streakAfter}-day streak. Keep it going tomorrow.`, "hint");
+          else chat("🔥 Streak started. Do one good thing tomorrow to keep it.", "hint");
+        }
         return ups;
       },
     });
@@ -235,6 +281,38 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     const quests = { ...st.quests };
     delete quests[q.id];
     commit({ ...st, quests });
+  };
+
+  // ---- rewards: level milestones and streak freezes (only once real data has loaded) ----
+  const loaded = sync !== "loading";
+  useEffect(() => {
+    if (!loaded) return;
+    const ms = newMilestones(state, c);
+    if (!ms.length) return;
+    const milestones = { ...state.milestones };
+    ms.forEach(([sk, lvl]) => (milestones[sk] = Math.max(milestones[sk] ?? 0, lvl)));
+    commit({ ...state, milestones });
+    const total = ms.reduce((a, [, l]) => a + milestoneBounty(l), 0);
+    ms.forEach(([sk, lvl]) => chat(`Milestone: ${SKILLS.find((x) => x.id === sk)!.name} level ${lvl}. Bounty ${gp(milestoneBounty(lvl))}.`, "lvl"));
+    worldRef.current?.moneyDrop("+" + total + " bounty", false);
+  }, [loaded, state, c, commit, chat]);
+  useEffect(() => {
+    if (!loaded) return;
+    const days = freezesNeeded(state);
+    if (!days.length) return;
+    const f = state.freezes ?? { bought: 0, used: [] };
+    commit({ ...state, freezes: { ...f, used: [...f.used, ...days] } });
+    chat(`❄️ A streak freeze covered ${days.length === 1 ? "yesterday" : days.length + " missed days"}. Your streak lives on.`, "lvl");
+    sfx.freeze();
+  }, [loaded, state, commit, chat]);
+  const buyFreeze = () => {
+    const st = stateRef.current;
+    const s = streakInfo(st);
+    if (money(st).wallet < FREEZE_PRICE || s.held >= MAX_FREEZES) return;
+    const f = st.freezes ?? { bought: 0, used: [] };
+    commit({ ...st, freezes: { ...f, bought: f.bought + 1 } });
+    chat(`You buy a streak freeze for ${gp(FREEZE_PRICE)}. It'll cover a day you miss.`, "lvl");
+    sfx.freeze();
   };
 
   // ---- zen garden ----
@@ -362,11 +440,33 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
               <button className={"wallet" + (purse.wallet < 0 ? " debt" : "")} onClick={() => setShop("bank")} title="Wallet (bank in brackets)">
                 🪙 {gp(purse.wallet)} <small>(🏦 {gp(purse.bank)})</small>
               </button>
+              <button
+                className={"streak" + (streak.atRisk ? " risk" : streak.todayDone ? " lit" : "")}
+                onClick={() => setCalendar(true)}
+                title={
+                  streak.current
+                    ? `${streak.current}-day streak (best ${streak.best}). ${streak.todayDone ? "Today is done." : "Do one good thing today to keep it."} Freezes: ${streak.held}`
+                    : "Do one good thing today to start a streak"
+                }
+              >
+                🔥 {streak.current}
+                {streak.held > 0 && <small> ❄{streak.held}</small>}
+              </button>
               <button onClick={() => setShop("wardrobe")} title="Change how you look">
                 Wardrobe
               </button>
               <button onClick={() => setCalendar(true)} title="Look back at what you did">
                 📅 Calendar
+              </button>
+              <button
+                onClick={() => {
+                  setMuted(!muted);
+                  setMute(!muted);
+                }}
+                title={muted ? "Sound off" : "Sound on"}
+                aria-label={muted ? "Turn sound on" : "Turn sound off"}
+              >
+                {muted ? "🔇" : "🔊"}
               </button>
               <span className="sync">{sync}</span>
             </div>
@@ -374,6 +474,13 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
           <div className="viewport">
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
+            {banners[0] && (
+              <div key={banners[0].id} className={"banner" + (banners[0].big ? " big" : "")} style={{ "--rc": banners[0].color } as React.CSSProperties} onClick={() => setBanners((bs) => bs.slice(1))}>
+                <small>{banners[0].kicker}</small>
+                <b>{banners[0].title}</b>
+                {banners[0].sub && <span>{banners[0].sub}</span>}
+              </div>
+            )}
             {volley && (
               <div className={"volley" + (volley.window ? " now" : "")}>
                 <span>
@@ -444,6 +551,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
                 c={c}
                 start={shop}
                 onBuy={buyItem}
+                onBuyFreeze={buyFreeze}
                 onCustom={setCustom}
                 onWithdraw={withdraw}
                 onClose={() => setShop(null)}

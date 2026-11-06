@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { SK, type GameState } from "../game/data";
 import { dayKey, parseKey } from "../game/logic";
 import { flowFor, gp } from "../game/economy";
+import { streakInfo } from "../game/rewards";
 
 interface Props {
   state: GameState;
@@ -74,6 +75,7 @@ export function CalendarPanel({ state, onPickDay, onSaveNote, onClose }: Props) 
     if (bad > good) return bad > 400 ? "bad2" : "bad1";
     return good >= 1200 ? "good3" : good >= 600 ? "good2" : "good1";
   };
+  const st = useMemo(() => streakInfo(state), [state]);
   const monthKeys = cells.filter(Boolean) as string[];
   const logged = monthKeys.filter((k) => summary(k).e.length);
   const monthNet = monthKeys.reduce((a, k) => a + summary(k).net, 0);
@@ -95,7 +97,7 @@ export function CalendarPanel({ state, onPickDay, onSaveNote, onClose }: Props) 
         </button>
         <span className="note">
           {logged.length} day{logged.length === 1 ? "" : "s"} logged · net {monthNet >= 0 ? "+" : ""}
-          {monthNet.toLocaleString()} XP
+          {monthNet.toLocaleString()} XP · 🔥 {st.current} day streak (best {st.best})
         </span>
         <button className="cal-x" onClick={onClose}>
           Close
@@ -121,6 +123,7 @@ export function CalendarPanel({ state, onPickDay, onSaveNote, onClose }: Props) 
               >
                 <span className="n">{parseKey(k).getDate()}</span>
                 {state.notes?.[k] && <span className="pin">✎</span>}
+                {st.frozen.has(k) && <span className="frz" title="Covered by a streak freeze">❄</span>}
               </button>
             ) : (
               <div key={"x" + i} />

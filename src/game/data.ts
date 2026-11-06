@@ -62,6 +62,10 @@ export interface GameState {
   bestRally?: number;
   /** A journal note per day (and notes added when confirming a log). */
   notes?: Record<string, string>;
+  /** Streak freezes: how many you've bought, and the days they covered. */
+  freezes?: { bought: number; used: string[] };
+  /** Highest level milestone (every 5 levels) paid out, per skill. */
+  milestones?: Partial<Record<SkillId, number>>;
 }
 
 export interface Garden {

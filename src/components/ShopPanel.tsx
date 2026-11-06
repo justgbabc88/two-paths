@@ -4,12 +4,14 @@ import { BANK_RATE, ITEM, ITEMS, flowFor, gp, money, type ShopItem } from "../ga
 import { todayLook } from "../game/appearance";
 import type { Computed } from "../game/logic";
 import { CharacterPreview } from "./CharacterPreview";
+import { FREEZE_PRICE, MAX_FREEZES, RARITY_COLOR, ownedIds, streakInfo } from "../game/rewards";
 
 interface Props {
   state: GameState;
   c: Computed;
   start: "shop" | "wardrobe" | "bank";
   onBuy(item: ShopItem): void;
+  onBuyFreeze(): void;
   onCustom(c: Custom): void;
   onWithdraw(amount: number): void;
   onClose(): void;
@@ -26,12 +28,14 @@ const SLOTS: { slot: ShopItem["slot"]; label: string; key: keyof Custom }[] = [
 ];
 
 // The general store: shop, wardrobe and bank in one panel.
-export function ShopPanel({ state, c: computed, start, onBuy, onCustom, onWithdraw, onClose }: Props) {
+export function ShopPanel({ state, c: computed, start, onBuy, onBuyFreeze, onCustom, onWithdraw, onClose }: Props) {
   const [trial, setTrial] = useState<string | null>(null); // item being tried on
   const [tab, setTab] = useState(start);
   const [amount, setAmount] = useState("");
   const m = money(state);
-  const owned = new Set(state.owned ?? []);
+  const owned = ownedIds(state);
+  const streak = streakInfo(state);
+  const lootItems = ITEMS.filter((i) => i.loot);
   const c = state.custom ?? {};
   const set = (patch: Custom) => onCustom({ ...c, ...patch });
 
@@ -64,12 +68,52 @@ export function ShopPanel({ state, c: computed, start, onBuy, onCustom, onWithdr
       </nav>
       <div className="sh-main">
       <div className="sh-body" onMouseLeave={() => tryOn(null)}>
+        {tab === "shop" && (
+          <div className="sh-freeze">
+            <span className="sw">❄️</span>
+            <div>
+              <b>Streak freeze</b> <small>({streak.held}/{MAX_FREEZES} held)</small>
+              <p className="note">Covers a day you miss so your 🔥 {streak.current}-day streak survives. Used automatically.</p>
+            </div>
+            <button className="buy" disabled={m.wallet < FREEZE_PRICE || streak.held >= MAX_FREEZES} onClick={() => confirm(`Buy a streak freeze for ${gp(FREEZE_PRICE)}?`) && onBuyFreeze()}>
+              {streak.held >= MAX_FREEZES ? "Full" : gp(FREEZE_PRICE)}
+            </button>
+          </div>
+        )}
+        {tab === "shop" && (
+          <div>
+            <h4>
+              Loot collection <small>({lootItems.filter((i) => owned.has(i.id)).length}/{lootItems.length} found)</small>
+            </h4>
+            <div className="sh-grid">
+              {lootItems.map((it) => {
+                const has = owned.has(it.id);
+                const key = SLOTS.find((x) => x.slot === it.slot)!.key;
+                const worn = c[key] === it.id;
+                return has ? (
+                  <div key={it.id} className={"sh-item loot" + (worn ? " worn" : "") + (trial === it.id ? " trying" : "")} style={{ borderColor: RARITY_COLOR[it.loot!] }} title={it.blurb} tabIndex={0} onMouseEnter={() => tryOn(it.id)} onFocus={() => tryOn(it.id)} onClick={() => tryOn(it.id)}>
+                    <span className="sw" style={{ background: it.color }} />
+                    <span className="nm">{it.name}</span>
+                    <button onClick={() => set({ [key]: worn ? "" : it.id } as Custom)}>{worn ? "Take off" : "Wear"}</button>
+                  </div>
+                ) : (
+                  <div key={it.id} className="sh-item loot locked" style={{ borderColor: RARITY_COLOR[it.loot!] }} title={`A ${it.loot} drop. Keep logging good habits.`}>
+                    <span className="sw">?</span>
+                    <span className="nm">???</span>
+                    <small style={{ color: RARITY_COLOR[it.loot!] }}>{it.loot}</small>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="note">Every good habit you log has a chance to drop gold or one of these. Bigger habits drop more often and drop rarer things.</p>
+          </div>
+        )}
         {tab === "shop" &&
           SLOTS.map(({ slot, label, key }) => (
             <div key={slot}>
               <h4>{label}</h4>
               <div className="sh-grid">
-                {ITEMS.filter((i) => i.slot === slot).map((it) => {
+                {ITEMS.filter((i) => i.slot === slot && !i.loot).map((it) => {
                   const has = owned.has(it.id);
                   const worn = c[key] === it.id;
                   return (
@@ -169,6 +213,9 @@ export function ShopPanel({ state, c: computed, start, onBuy, onCustom, onWithdr
               </div>
             </div>
             <p className="note">
+              Loot found {gp(m.loot)} · streak and level bounties {gp(m.bounties)}
+            </p>
+            <p className="note">
               This week: wages {gp(m.week.wage)} · self-investment {gp(m.week.stipend)} · saved {gp(m.week.deposit)} · vices <span className="debt">-{gp(m.week.cost)}</span>
             </p>
             <p className="note">The bank pays {Math.round(BANK_RATE * 100)}% every week on what's in it. Leave it and it compounds. Take it out and it stops working for you.</p>
@@ -203,7 +250,7 @@ export function ShopPanel({ state, c: computed, start, onBuy, onCustom, onWithdr
       </div>
       <aside className="sh-preview">
         <CharacterPreview appearance={preview} label={trialItem ? `Trying on: ${trialItem.name}` : "You"} />
-        {trialItem && !owned.has(trialItem.id) && (
+        {trialItem && !trialItem.loot && !owned.has(trialItem.id) && (
           <button className="buy" disabled={m.wallet < trialItem.price} onClick={() => confirm(`Buy ${trialItem.name} for ${gp(trialItem.price)}?`) && onBuy(trialItem)}>
             Buy for {gp(trialItem.price)}
           </button>

@@ -7,6 +7,7 @@ import { dayKey, levelFor, parseKey, project, type Computed } from "./logic";
 import type { StationId } from "./map";
 import type { Look } from "./models";
 import { ITEM } from "./economy";
+import { ownedIds } from "./rewards";
 import type { Custom } from "./data";
 
 export type Mood = "today" | "keep" | "slide";
@@ -102,7 +103,8 @@ function playerFor(levels: Record<SkillId, number>, opts: { slouch: number; clou
 /** Layer the player's wardrobe choices and equipped shop items over the earned outfit. */
 function dress(p: PlayerAppearance, state: GameState, age: number): PlayerAppearance {
   const c: Custom = state.custom ?? {};
-  const owns = (id?: string) => !!id && (state.owned ?? []).includes(id) && !!ITEM[id];
+  const have = ownedIds(state);
+  const owns = (id?: string) => !!id && have.has(id) && !!ITEM[id];
   const look: Look = { ...p.look };
   if (c.skin) look.skin = c.skin;
   if (c.hairStyle) look.hairStyle = c.hairStyle;
