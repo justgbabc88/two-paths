@@ -40,7 +40,7 @@ export const TIER_NAMES: Record<SkillId, string[]> = {
   health: ["Training yard", "Gym yard", "Drill grounds", "Arena", "Champions' grounds"],
   mind: ["Standing stone", "Stone circle", "Quiet grove", "Sanctuary", "Still point"],
 };
-const VICE_IDS: VicePlace[] = ["tavern", "shack", "sweets", "den"];
+const VICE_IDS: VicePlace[] = ["tavern", "shack", "sweets", "den", "pawn", "well"];
 
 const tierOf = (lvl: number) => Math.min(4, Math.floor((lvl - 1) / 20));
 
@@ -69,7 +69,7 @@ function daysSinceTrained(state: GameState, skill: SkillId): number | null {
 const neglectFor = (days: number | null) => (days === null ? 0 : days <= 1 ? 0 : days <= 3 ? 1 : days <= 6 ? 2 : 3);
 
 function viceLevels(state: GameState): Record<VicePlace, number> {
-  const out = { tavern: 0, shack: 0, sweets: 0, den: 0 } as Record<VicePlace, number>;
+  const out = { tavern: 0, shack: 0, sweets: 0, den: 0, pawn: 0, well: 0 } as Record<VicePlace, number>;
   for (const v of VICE_IDS) {
     const ids = new Set(state.habits.filter((h) => h.type === "neg" && (h.place ?? "tavern") === v).map((h) => h.id));
     const n = repsSince(state, 7, (id) => ids.has(id));

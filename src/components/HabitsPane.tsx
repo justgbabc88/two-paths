@@ -2,6 +2,7 @@ import { useState } from "react";
 import { SK, SKILLS, VICE_PLACES, type GameState, type Habit, type HabitType, type SkillId, type VicePlace } from "../game/data";
 import { dayKey, parseKey } from "../game/logic";
 import { ACTION, ACTIONS, actionFor, type ActionId } from "../game/actions";
+import { LIBRARY } from "../game/library";
 
 interface Props {
   state: GameState;
@@ -32,6 +33,9 @@ export function HabitsPane(p: Props) {
   const [place, setPlace] = useState<VicePlace>("tavern");
   const [action, setAction] = useState<ActionId | "">("");
   const [importText, setImportText] = useState("");
+  const groups = [...new Set(LIBRARY.map((h) => h.group))];
+  const [libGroup, setLibGroup] = useState(groups[0]);
+  const have = new Set(p.state.habits.map((h) => h.name.toLowerCase()));
   const log = p.state.logs[p.viewDay] || {};
   const today = dayKey(new Date());
 
@@ -56,7 +60,46 @@ export function HabitsPane(p: Props) {
           ›
         </button>
       </div>
-      <h2 className="s">Add a habit</h2>
+      <h2 className="s">Habit library</h2>
+      <div className="lib">
+        <div className="lib-groups">
+          {groups.map((g) => {
+            const bad = LIBRARY.find((h) => h.group === g)!.type === "neg";
+            return (
+              <button key={g} className={bad ? "bad" : "good"} aria-pressed={libGroup === g} onClick={() => setLibGroup(g)}>
+                {g}
+              </button>
+            );
+          })}
+        </div>
+        {LIBRARY.filter((h) => h.group === libGroup).map((h) => {
+          const added = have.has(h.name.toLowerCase());
+          return (
+            <div className="lib-row" key={h.name}>
+              <div className="meta">
+                <div>{h.name}</div>
+                <div className="sub">
+                  {h.type === "neg" ? "−" : "+"}
+                  {h.xp} {SK[h.skill].name}
+                  {h.skill2 ? " & " + SK[h.skill2].name : ""} · {ACTION[h.action].label}
+                </div>
+              </div>
+              <button
+                className="btn sm"
+                disabled={added}
+                onClick={() => {
+                  const { group: _g, ...habit } = h;
+                  void _g;
+                  p.onAdd(habit);
+                }}
+              >
+                {added ? "Added" : "Add"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <h2 className="s">Or make your own</h2>
       <div className="form">
         <label>
           Name

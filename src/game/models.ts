@@ -144,7 +144,7 @@ export interface CharacterRig {
   /** Held or placed props, all hidden until an action shows them. */
   props: Record<PropId, THREE.Object3D>;
 }
-export type PropId = "pick" | "mug" | "joint" | "phone" | "treat" | "laptop" | "ledger" | "quill" | "dumbL" | "dumbR" | "book" | "bedroll" | "coinbag" | "dice";
+export type PropId = "pick" | "mug" | "joint" | "phone" | "treat" | "laptop" | "ledger" | "quill" | "dumbL" | "dumbR" | "book" | "bedroll" | "coinbag" | "dice" | "pan" | "glass";
 
 export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   const root = new THREE.Group();
@@ -283,6 +283,13 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
   const dice = grp(part(new THREE.BoxGeometry(0.05, 0.05, 0.05), "#f4f0e6", -0.02, 0, 0), part(new THREE.BoxGeometry(0.05, 0.05, 0.05), "#c8432f", 0.035, 0.02, 0.01));
   dice.position.set(0, -0.45, 0.04);
   hold("dice", dice, armR);
+  const pan = grp(part(new THREE.CylinderGeometry(0.11, 0.09, 0.04, 8), "#2c2e31", 0, 0, 0.13), part(new THREE.BoxGeometry(0.03, 0.02, 0.16), "#5a3a20", 0, 0, 0.0), part(new THREE.SphereGeometry(0.06, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2), "#d9a050", 0, 0.01, 0.13));
+  pan.position.set(0, -0.44, 0.04);
+  pan.rotation.x = -1.4;
+  hold("pan", pan, armR);
+  const glass = grp(part(new THREE.CylinderGeometry(0.045, 0.04, 0.13, 8), "#bcd8e8"), part(new THREE.CylinderGeometry(0.04, 0.036, 0.1, 8), "#5a9ad0", 0, -0.01, 0));
+  glass.position.set(0, -0.45, 0.05);
+  hold("glass", glass, armR);
   // left hand
   const dL = dumb();
   dL.position.set(0, -0.42, 0.02);
@@ -595,6 +602,35 @@ function den(): THREE.Group {
   return g;
 }
 
+function pawnbroker(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(1.6, 1.25, 1.4, "#5a4a3c", 0, 0.62, -0.05));
+  for (const x of [-0.8, 0, 0.8]) g.add(box(0.07, 1.25, 0.05, "#2e241a", x, 0.62, 0.66));
+  g.add(gableX(1.9, 1.7, 0.7, "#3a3430", 1.25));
+  g.add(box(0.42, 0.8, 0.05, "#2e241a", -0.38, 0.4, 0.66));
+  g.add(box(0.5, 0.42, 0.05, "#c9a24a", 0.4, 0.7, 0.66, { emissive: "#4a3410" }));
+  for (let i = 0; i < 4; i++) g.add(box(0.08, 0.08, 0.04, ["#d4a52a", "#9aa0a6", "#8a2a22", "#3d6a8a"][i], 0.25 + (i % 2) * 0.2, 0.62 + Math.floor(i / 2) * 0.16, 0.69));
+  // three brass balls on a bracket
+  g.add(box(0.05, 0.05, 0.5, "#2e241a", 0.8, 1.3, 0.9));
+  [[0.8, 1.12, 1.05], [0.7, 0.98, 1.05], [0.9, 0.98, 1.05]].forEach(([x, y, z]) => g.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), mat("#d4a52a", { emissive: "#3a2a00" }))).children.at(-1)!.position.set(x, y, z));
+  g.add(box(0.4, 0.32, 0.3, "#6b4626", -0.75, 0.16, 0.95));
+  g.add(cyl(0.05, 0.05, 0.3, 8, "#c9a24a", -0.75, 0.47, 0.95));
+  return g;
+}
+function gossipWell(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(roughen(new THREE.CylinderGeometry(0.55, 0.6, 0.6, 8, 1, true).toNonIndexed(), 0.03, 71), mat("#7d7a72"))).children.at(-1)!.position.y = 0.3;
+  g.add(new THREE.Mesh(new THREE.CircleGeometry(0.52, 8).rotateX(-Math.PI / 2), mat("#1d2a30"))).children.at(-1)!.position.y = 0.22;
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(0.57, 0.07, 4, 8).rotateX(Math.PI / 2), mat("#8a867c"))).children.at(-1)!.position.y = 0.6;
+  for (const x of [-0.5, 0.5]) g.add(box(0.08, 1.0, 0.08, "#5a3a20", x, 1.0, 0));
+  g.add(gableX(1.4, 0.8, 0.4, "#4a3a28", 1.45));
+  g.add(cyl(0.04, 0.04, 1.05, 6, "#6b4626", 0, 1.3, 0)).children.at(-1)!.rotation.z = Math.PI / 2;
+  g.add(cyl(0.11, 0.09, 0.16, 7, "#6b4626", 0.15, 0.95, 0));
+  // benches where people talk
+  for (const x of [-0.95, 0.95]) g.add(box(0.2, 0.25, 0.7, "#5a3a20", x, 0.13, 0.35));
+  return g;
+}
+
 export function makeStation(id: StationId): THREE.Group {
   switch (id) {
     case "wealth": return goldMine();
@@ -607,6 +643,8 @@ export function makeStation(id: StationId): THREE.Group {
     case "shack": return smokeShack();
     case "sweets": return sweetStall();
     case "den": return den();
+    case "pawn": return pawnbroker();
+    case "well": return gossipWell();
   }
 }
 
@@ -964,6 +1002,53 @@ export function makeBoat(): THREE.Group {
   oar.rotation.y = 0.5;
   g.add(oar);
   return g;
+}
+
+// ---------------- zen garden ----------------
+/** Walled sand bed (texture supplied by the world), plus a lantern, a small pine and a bench. */
+export function makeGardenFrame(w: number, d: number): { group: THREE.Group; sand: THREE.Mesh } {
+  const g = new THREE.Group();
+  const sand = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: "#ffffff" }));
+  sand.position.y = 0.06;
+  g.add(sand);
+  // low stone curb, with a gap for the gate on the south side
+  const curb = (x: number, z: number, lw: number, ld: number) => g.add(new THREE.Mesh(roughen(new THREE.BoxGeometry(lw, 0.18, ld, Math.max(1, Math.round(lw * 2)), 1, Math.max(1, Math.round(ld * 2))).toNonIndexed(), 0.03, Math.round(x * 7 + z * 3)), mat("#8a867c"))).children.at(-1)!.position.set(x, 0.09, z);
+  curb(0, -d / 2 - 0.08, w + 0.32, 0.16);
+  curb(-w / 2 - 0.08, 0, 0.16, d);
+  curb(w / 2 + 0.08, 0, 0.16, d);
+  curb(-w / 4 - 0.25, d / 2 + 0.08, w / 2 - 0.5 + 0.16, 0.16);
+  curb(w / 4 + 0.25, d / 2 + 0.08, w / 2 - 0.5 + 0.16, 0.16);
+  // bamboo fence behind
+  for (let i = 0; i <= 18; i++) g.add(cyl(0.035, 0.035, 0.9, 6, i % 3 ? "#a89a5a" : "#8a7c42", -w / 2 + (i / 18) * w, 0.45, -d / 2 - 0.3));
+  for (const y of [0.35, 0.75]) g.add(cyl(0.02, 0.02, w, 5, "#6b5a2a", 0, y, -d / 2 - 0.27)).children.at(-1)!.rotation.z = Math.PI / 2;
+  // stone lantern in the north-east corner
+  const lan = new THREE.Group();
+  lan.add(cyl(0.16, 0.2, 0.12, 6, "#8a867c", 0, 0.06, 0));
+  lan.add(cyl(0.06, 0.07, 0.5, 6, "#8a867c", 0, 0.37, 0));
+  lan.add(box(0.26, 0.2, 0.26, "#8a867c", 0, 0.72, 0));
+  lan.add(box(0.14, 0.1, 0.27, "#f0c766", 0, 0.72, 0, { emissive: "#8a6010" }));
+  lan.add(new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.2, 6), mat("#7d7a72"))).children.at(-1)!.position.y = 0.92;
+  lan.position.set(w / 2 - 0.35, 0.06, -d / 2 + 0.35);
+  g.add(lan);
+  // a small windswept pine on a moss mound, north-west corner
+  const pine = new THREE.Group();
+  pine.add(new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2), mat("#4f6a2f"))).children.at(-1)!.scale.set(1, 0.4, 1);
+  const trunk = cyl(0.04, 0.07, 0.8, 5, "#5a3a20", 0.08, 0.4, 0);
+  trunk.rotation.z = -0.35;
+  pine.add(trunk);
+  [[0.25, 0.75, 0, 0.26], [-0.05, 0.95, 0.05, 0.2], [0.35, 0.55, -0.05, 0.18]].forEach(([x, y, z, r]) => pine.add(new THREE.Mesh(roughen(new THREE.IcosahedronGeometry(r, 0).toNonIndexed(), 0.06, Math.round(x * 50)), mat("#2f5528"))).children.at(-1)!.position.set(x, y, z));
+  pine.children.slice(-3).forEach((m) => m.scale.set(1.3, 0.55, 1));
+  pine.position.set(-w / 2 + 0.4, 0.06, -d / 2 + 0.4);
+  g.add(pine);
+  // bench just outside the gate
+  g.add(box(0.7, 0.06, 0.24, "#6b4626", 0.9, 0.32, d / 2 + 0.55));
+  for (const x of [0.62, 1.18]) g.add(box(0.06, 0.3, 0.2, "#5a3a20", x, 0.15, d / 2 + 0.55));
+  return { group: g, sand };
+}
+export function makeGardenStone(scale: number, seed: number): THREE.Mesh {
+  const m = new THREE.Mesh(roughen(new THREE.DodecahedronGeometry(0.22, 0).toNonIndexed(), 0.07, seed), mat("#7a766c"));
+  m.scale.set(scale, scale * 0.7, scale * 0.85);
+  return m;
 }
 
 // ---------------- shop & pets ----------------

@@ -18,7 +18,7 @@ export type Flow = { kind: "wage" | "stipend" | "deposit" | "cost"; amount: numb
 /** What one rep of this habit does to your money. */
 export function flowFor(h: Habit): Flow {
   if (h.type === "neg") {
-    const base = { tavern: 1, shack: 0.8, sweets: 0.4, den: 0.15 }[h.place ?? "tavern"];
+    const base = { tavern: 1, shack: 0.8, sweets: 0.4, den: 0.15, pawn: 1.4, well: 0.1 }[h.place ?? "tavern"];
     return { kind: "cost", amount: Math.max(3, Math.round((h.xp / 10) * base)) };
   }
   if (actionFor(h) === "coins" || (h.skill === "wealth" && /sav|invest|fund|deposit|put/i.test(h.name))) return { kind: "deposit", amount: Math.max(5, Math.round(h.xp / 10)) };

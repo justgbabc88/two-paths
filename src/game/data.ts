@@ -11,12 +11,14 @@ export interface Skill {
 export type HabitType = "pos" | "neg";
 
 /** Where a tear-down habit happens in the world. Missing = the tavern (v1 behaviour). */
-export type VicePlace = "tavern" | "shack" | "sweets" | "den";
+export type VicePlace = "tavern" | "shack" | "sweets" | "den" | "pawn" | "well";
 export const VICE_PLACES: { id: VicePlace; name: string; ico: string; hint: string }[] = [
   { id: "tavern", name: "Tavern", ico: "🍺", hint: "drinking, betting" },
   { id: "shack", name: "Smoke shack", ico: "🍃", hint: "weed, vaping, cigarettes" },
   { id: "sweets", name: "Sweet stall", ico: "🍩", hint: "junk food, sugar" },
-  { id: "den", name: "The den", ico: "📱", hint: "doomscrolling, binges" },
+  { id: "den", name: "The den", ico: "📱", hint: "doomscrolling, binges, procrastinating" },
+  { id: "pawn", name: "Pawnbroker", ico: "💸", hint: "impulse buys, late fees, debt" },
+  { id: "well", name: "Gossip well", ico: "🗣️", hint: "arguments, gossip, broken promises" },
 ];
 
 export interface Habit {
@@ -54,6 +56,15 @@ export interface GameState {
   withdrawals?: { day: string; amount: number }[];
   /** How you've chosen to look (wardrobe + equipped shop items). */
   custom?: Custom;
+  /** Your zen garden: raked lines, stones, and when you last swept it. */
+  garden?: Garden;
+}
+
+export interface Garden {
+  /** Each stroke is a flat list of x,y pairs in 0..1 sand coordinates. */
+  strokes: number[][];
+  stones: { x: number; y: number; s: number }[];
+  tended?: string;
 }
 
 export interface Custom {

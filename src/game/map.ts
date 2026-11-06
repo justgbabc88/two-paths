@@ -18,18 +18,18 @@ export const MAP: string[] = [
   "TTP.W.........W..TT..MM....T..,...,r.T.................MMMMMMMMMMMMMMMMM",
   "TTPTW.........W,.T.........T..T.r.r..T...........T.Tr....P.MMMMMMMMMMMMM",
   "TTbTW.........W.....T..........,....TT...T.TT.....b...TT...MMMMMMMMMMMMM",
-  "PTTTW.........W..P...T..................,.....,...T......P..PP..P.P..PPM",
-  "TPTTW.........W..........P...r,...T.T..,T...TT,b....,.,....r.......PP..M",
-  "TTT.W....=....W.......r.T...T..T.........T.,..r...T.....TTr......P.rP..M",
-  "PTTPW....=....W..TPT..,...T.rP.T.........T......T...T.....P.....P.....PM",
-  "TTTTWWWWT=TWWWW..TP.T.=.T.T.PT.T..TTT.T....PT..TT.T..TT..P............TM",
-  "TPPPT.TT.=.P.TPTP.PT.T=TTTPTPT.TTPT.TTPP.P~T.TPPT...P.PT.........P.TrP.M",
-  "TTT.TT.T.=.T..TTTTTT.P=..T.........T.TT...~.T...P...T.PT...P..=........M",
-  "TTPTT...T==============.r.................~.......T...T..Pr.PP=PTPTPP..M",
-  "TTPTT.TT.=TTbTT.......=..r..........,.....~~.........TTT.PPTP.=..PTPPP.M",
-  "PTPT.T..T=T.TT..PTP...=.........T.P...r....~..........TT.PTTPT=..rPPPP.M",
-  "PTTTP.TP.=bbTTT.PT.r..=.r..................~b..=.......T..PPPP=PPPP.Pr.M",
-  "PT.TTP.T.=.TT...TT..r.=..r................,~...=......T....T..=PPP.P.PPM",
+  "PTTTW.........W..P...T..................,.....,..........P..PP..P.P..PPM",
+  "TPTTW.........W..........P...r,...T.T..,T...TT,............r.......PP..M",
+  "TTT.W....=....W.......r.T...T..T.........T.,..r.........TTr......P.rP..M",
+  "PTTPW....=....W..TPT..,...T.rP.T.........T................P.....P.....PM",
+  "TTTTWWWWT=TWWWW..TP.T.=.T.T.PT.T..TTT.T....PT............P............TM",
+  "TPPPT.TT.=.P.TPTP.PT.T=TTTPTPT.TTPT.TTPP.P~T.TP...=....T.........P.TrP.M",
+  "TTT.TT.T.=.T..TTTTTT.P=..T.........T.TT...~.T...P.=.T.PT...P..=........M",
+  "TTPTT...T==============.r.................~.......=...T..Pr.PP=PTPTPP..M",
+  "TTPTT.TT.=TTbTT.......=..r..........,.....~~......=..TTT.PPTP.=..PTPPP.M",
+  "PTPT.T..T=T.TT..PTP...=.........T.P...r....~......=...TT.PTTPT=..rPPPP.M",
+  "PTTTP.TP.=bbTTT.PT.r..=.r..................~b..=..=....T..PPPP=PPPP.Pr.M",
+  "PT.TTP.T.=.TT...TT..r.=..r................,~...=..=...T....T..=PPP.P.PPM",
   "TTbTTTTTT=.TTTT.T.T.T.=...Pr..........=====h===================PTT..T.TM",
   "TTTT.T.P.=TTTTT.P.....=r..............=....~..........PP.P...P.T...Pr..M",
   "PTT.T.TT.=...P.TPT....=...............=....~~..~~~...TPT,.TPPP.P..PP.rPM",
@@ -45,7 +45,7 @@ export const MAP: string[] = [
   "TTT.PTTT........TT........bb.....=......T.......~....TPT........,.......",
   "TT..TTPTT.PT.TT.TP...............=..............~.....TT...TT...P.......",
   "TTTTTTTTTT..TPT.TT...............=.............P~~....PT....T.......,.T.",
-  "TTTP...PT.PP.T...TT.==============...............~....T.TT.....T..b....b",
+  "TTTP...PT.PP.T...T================...............~....T.TT.....T..b....b",
   "TTT.PP.TTPT.TTT.T.T..............=...............~r......T...T..........",
   "TTPTPP..TTTT.bT,PP........,......=...............~...T......T..bT....T..",
   "TT.TT.TTTTT.TT.,P..,,.,.....,...T=...............~...T.T,.....,.T.T,....",
@@ -98,6 +98,8 @@ export const STATIONS: Station[] = [
   { id: "tavern", skill: null, name: "Tavern", x: 31, y: 24, w: 2, h: 2, ax: 32, ay: 26, verb: "drink", examine: "The tavern. Everyone ends up here sometimes. Be honest about it." },
   { id: "shack", skill: null, name: "Smoke shack", x: 20, y: 34, w: 2, h: 2, ax: 21, ay: 36, verb: "light up", examine: "A leaning shack in a permanent haze. Time goes soft in here." },
   { id: "sweets", skill: null, name: "Sweet stall", x: 24, y: 35, w: 2, h: 1, ax: 24, ay: 36, verb: "snack", examine: "Bright, sticky and always open. It's never just one." },
+  { id: "pawn", skill: null, name: "Pawnbroker", x: 18, y: 34, w: 2, h: 2, ax: 19, ay: 36, verb: "spend", examine: "Three brass balls over the door. Everything you need, right now, at a price." },
+  { id: "well", skill: null, name: "Gossip well", x: 30, y: 34, w: 2, h: 2, ax: 30, ay: 36, verb: "vent", examine: "People come to draw water and leave with a grudge." },
   { id: "den", skill: null, name: "The den", x: 27, y: 34, w: 2, h: 2, ax: 28, ay: 36, verb: "scroll", examine: "Curtains drawn, screens glowing. You look up and two hours are gone." },
 ];
 
@@ -137,6 +139,11 @@ LANDMARKS.forEach((l) => {
   for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) blocked[y][x] = true;
 });
 export const landmarkAt = (x: number, y: number) => LANDMARKS.find((l) => x >= l.x && x < l.x + l.w && y >= l.y && y < l.y + l.h);
+
+/** The zen garden: a walled sand garden you rake and tend, and a place to sit. */
+export const GARDEN = { x: 48, y: 10, w: 6, h: 4, ax: 50, ay: 14 };
+for (let y = GARDEN.y; y < GARDEN.y + GARDEN.h; y++) for (let x = GARDEN.x; x < GARDEN.x + GARDEN.w; x++) blocked[y][x] = true;
+export const isGarden = (x: number, y: number) => x >= GARDEN.x && x < GARDEN.x + GARDEN.w && y >= GARDEN.y && y < GARDEN.y + GARDEN.h;
 
 /** The general store: buy gear with the gold your habits earn. */
 export const SHOP = { x: 30, y: 31, w: 2, h: 2, ax: 32, ay: 32 };

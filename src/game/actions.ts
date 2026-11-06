@@ -5,7 +5,8 @@ import type { Habit, SkillId, VicePlace } from "./data";
 
 export type ActionId =
   | "call" | "type" | "write" | "swing" | "lift" | "jog" | "sleep" | "meditate"
-  | "read" | "talk" | "coins" | "drink" | "smoke" | "eat" | "scroll" | "bet";
+  | "read" | "talk" | "coins" | "drink" | "smoke" | "eat" | "scroll" | "bet"
+  | "cook" | "water" | "splurge" | "argue";
 
 export interface ActionDef {
   id: ActionId;
@@ -35,6 +36,10 @@ export const ACTIONS: ActionDef[] = [
   { id: "eat", label: "Snacking", start: "You give in and grab something sweet: {h}.", secs: 1.6 },
   { id: "scroll", label: "Scrolling", start: "You give in and start scrolling: {h}.", secs: 2.2 },
   { id: "bet", label: "Gambling", start: "You give in and place a bet: {h}.", secs: 1.8, fx: "⚀" },
+  { id: "cook", label: "Cooking", start: "You cook something good: {h}.", secs: 2.2, fx: "~" },
+  { id: "water", label: "Drinking water", start: "You drink a big glass of water: {h}.", secs: 1.6 },
+  { id: "splurge", label: "Splurging", start: "You give in and hand over the money: {h}.", secs: 1.8, fx: "$" },
+  { id: "argue", label: "Arguing", start: "You lose your temper: {h}.", secs: 2.0, fx: "#" },
 ];
 export const ACTION = Object.fromEntries(ACTIONS.map((a) => [a.id, a])) as Record<ActionId, ActionDef>;
 
@@ -57,7 +62,7 @@ const RULES: [RegExp, ActionId][] = [
   [/\b(follow(ed)? up|email|deliverable|ship|shipped|build|built|code|coded|deep work|product|ai|design)/i, "type"],
 ];
 const BY_SKILL: Record<SkillId, ActionId> = { business: "type", health: "lift", relationship: "talk", mind: "meditate", learning: "read", wealth: "coins" };
-const BY_PLACE: Record<VicePlace, ActionId> = { tavern: "drink", shack: "smoke", sweets: "eat", den: "scroll" };
+const BY_PLACE: Record<VicePlace, ActionId> = { tavern: "drink", shack: "smoke", sweets: "eat", den: "scroll", pawn: "splurge", well: "argue" };
 
 /** The action this habit plays: its chosen one, else one inferred from its name. */
 export function actionFor(h: Habit): ActionId {

@@ -4,10 +4,12 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, FORK, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
+import { COLS, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
 import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
-import { CHIMNEYS, buildStation, hash, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
+import { CHIMNEYS, buildStation, hash, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
+import { DEFAULT_GARDEN, drawGarden, leavesFor } from "./garden";
+import type { Garden } from "./data";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
 
@@ -32,6 +34,8 @@ export interface WorldCallbacks {
   openFork(): void;
   /** Player reached the general store. */
   openShop(): void;
+  /** Player reached the zen garden gate. */
+  openGarden(): void;
 }
 
 interface Npc {
@@ -64,6 +68,7 @@ function baseHeight(i: number, j: number) {
   return h + 0.42; // keep dry land above the water plane
 }
 const stationBase = new Map<string, number>();
+const GARDEN_BASE = 0.5;
 STATIONS.forEach((s) => stationBase.set(s.id, 0.42 + (baseHeight(s.x + s.w / 2, s.y + s.h / 2) - 0.42) * 0.5));
 const corner: number[][] = [];
 for (let j = 0; j <= ROWS; j++) {
@@ -75,6 +80,7 @@ for (let j = 0; j <= ROWS; j++) {
     if (tiles.some((c) => c === "=" || c === "h" || c === "v")) h = 0.42 + (h - 0.42) * 0.4;
     const st = [footprintOf(i - 1, j - 1), footprintOf(i, j - 1), footprintOf(i - 1, j), footprintOf(i, j)].find(Boolean);
     if (st) h = stationBase.get(st.id)!;
+    if ([[i - 1, j - 1], [i, j - 1], [i - 1, j], [i, j]].some(([x, y]) => isGarden(x, y))) h = GARDEN_BASE;
     const rock = tiles.filter((c) => c === "M").length;
     if (rock) h += rock * 0.3 + (rock === 4 ? 0.7 + hash(i * 1.7, j * 2.3) * 1.6 + Math.max(0, 6 - j) * 0.18 : 0);
     if (wet === 4) h = -0.55;
@@ -253,6 +259,11 @@ export class World {
   private boats: THREE.Object3D[] = [];
   private fork!: THREE.Group;
   private shop!: THREE.Group;
+  private garden!: THREE.Group;
+  private gardenStones = new THREE.Group();
+  private gardenCanvas = document.createElement("canvas");
+  private gardenTex!: THREE.CanvasTexture;
+  private gardenKey = "";
   private pet: { rig: PetRig; kind: string; x: number; z: number; face: number; t: number } | null = null;
   private cloud!: THREE.Group;
   private look: WorldLook | null = null;
@@ -267,7 +278,7 @@ export class World {
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false, pendingGarden: false };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
@@ -342,6 +353,22 @@ export class World {
     this.shop.userData.shop = true;
     sc.add(this.shop);
     this.shop.traverse((o) => o.name === "spin" && this.spinners.push(o));
+    {
+      const w = GARDEN.w - 0.3,
+        d = GARDEN.h - 0.3;
+      const { group, sand } = makeGardenFrame(w, d);
+      group.position.set(GARDEN.x + GARDEN.w / 2, GARDEN_BASE, GARDEN.y + GARDEN.h / 2);
+      group.userData.garden = true;
+      group.add(this.gardenStones);
+      this.gardenCanvas.width = 768;
+      this.gardenCanvas.height = 512;
+      this.gardenTex = new THREE.CanvasTexture(this.gardenCanvas);
+      this.gardenTex.colorSpace = THREE.SRGBColorSpace;
+      this.gardenTex.anisotropy = 4;
+      (sand.material as THREE.MeshLambertMaterial).map = this.gardenTex;
+      this.garden = group;
+      sc.add(group);
+    }
     this.fork = makeFork();
     this.fork.position.set(FORK.x + FORK.w / 2, groundAt(FORK.x + FORK.w / 2, FORK.y + 0.5), FORK.y + 0.5);
     this.fork.userData.fork = true;
@@ -465,12 +492,13 @@ export class World {
     return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
   /** What is under a point in view coordinates: a station, or a ground tile. */
-  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; shop?: boolean; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
+  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; shop?: boolean; garden?: boolean; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
     this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
-    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.shop, this.terrain], true)[0];
+    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.shop, this.garden, this.terrain], true)[0];
     if (!hit) return {};
     let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark && !o.userData.shop) o = o.parent;
+    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark && !o.userData.shop && !o.userData.garden) o = o.parent;
+    if (o?.userData.garden || isGarden(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { garden: true, point: hit.point };
     if (o?.userData.shop || isShop(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { shop: true, point: hit.point };
     const lm = (o?.userData.landmark as Landmark | undefined) ?? landmarkAt(Math.floor(hit.point.x), Math.floor(hit.point.z));
     if (lm) return { landmark: lm, point: hit.point };
@@ -612,6 +640,18 @@ export class World {
       ctx.fillStyle = "#f2e6c4";
       ctx.fillText(lab, p.x, p.y + 10);
     });
+    // the garden's label
+    {
+      const p = this.project(this.garden.position.x, this.garden.position.y, this.garden.position.z + GARDEN.h / 2 + 0.3);
+      if (!p.behind) {
+        const lab = "🪷 Zen garden";
+        const tw = ctx.measureText(lab).width + 8;
+        ctx.fillStyle = "rgba(0,0,0,.5)";
+        ctx.fillRect(p.x - tw / 2, p.y, tw, 13);
+        ctx.fillStyle = "#f2e6c4";
+        ctx.fillText(lab, p.x, p.y + 10);
+      }
+    }
     // the store's label
     {
       const p = this.project(this.shop.position.x, this.shop.position.y, this.shop.position.z + 1.15);
@@ -734,6 +774,9 @@ export class World {
         } else if (p.shop) {
           verb = "Trade";
           name = " General store";
+        } else if (p.garden) {
+          verb = "Tend";
+          name = " Zen garden";
         } else if (p.landmark) {
           verb = "Examine";
           name = " " + p.landmark.name;
@@ -792,6 +835,11 @@ export class World {
           P.pendingStation = null;
           this.faceStation(s);
           this.cb.openStation(s, this.stationScreenPos(s));
+        }
+        if (!P.path.length && P.pendingGarden) {
+          P.pendingGarden = false;
+          P.face = Math.PI;
+          this.cb.openGarden();
         }
         if (!P.path.length && P.pendingShop) {
           P.pendingShop = false;
@@ -1040,6 +1088,27 @@ export class World {
         armL.rotation.set(-1.0, 0, 0.35);
         head.rotation.set(0.45, 0, 0);
         break;
+      case "cook":
+        show.pan = true;
+        armR.rotation.set(-1.2 + Math.sin(t * 7) * 0.12, 0, -0.25 + Math.cos(t * 7) * 0.12);
+        armL.rotation.set(-0.9, 0, 0.3);
+        head.rotation.x = 0.3;
+        break;
+      case "water":
+        show.glass = true;
+        armR.rotation.x = -1.2 - Math.max(0, s(3.5)) * 1.2;
+        break;
+      case "splurge":
+        show.coinbag = true;
+        armL.rotation.set(-1.0, 0, 0.3);
+        armR.rotation.set(-1.4 + Math.abs(s(5)) * 0.9, 0, -0.4);
+        break;
+      case "argue":
+        armL.rotation.set(-1.0 - Math.max(0, s(9)) * 0.9, 0, -0.3);
+        armR.rotation.set(-1.0 - Math.max(0, -s(9)) * 0.9, 0, 0.3);
+        head.rotation.set(-0.1, s(12) * 0.25, 0);
+        body.position.y = Math.abs(s(9)) * 0.03;
+        break;
       case "bet":
         show.dice = true;
         armR.rotation.set(-1.4 + s(30) * 0.15, 0, -0.2);
@@ -1096,6 +1165,25 @@ export class World {
   /** Wanderers who have a quest to offer get a gold ! overhead. */
   setQuestGivers(ids: string[]) {
     this.questGivers = new Set(ids);
+  }
+  /** Repaint the sand and re-place the stones to match your garden. */
+  setGarden(g: Garden | undefined, created: string) {
+    const garden = g ?? DEFAULT_GARDEN;
+    const leaves = leavesFor(garden, created);
+    const key = JSON.stringify(garden) + leaves.length;
+    if (key === this.gardenKey) return;
+    this.gardenKey = key;
+    drawGarden(this.gardenCanvas.getContext("2d")!, this.gardenCanvas.width, this.gardenCanvas.height, garden, leaves);
+    this.gardenTex.needsUpdate = true;
+    this.gardenStones.clear();
+    const w = GARDEN.w - 0.3,
+      d = GARDEN.h - 0.3;
+    garden.stones.forEach((s, i) => {
+      const m = makeGardenStone(s.s, i + 3);
+      m.position.set((s.x - 0.5) * w, 0.1, (s.y - 0.5) * d);
+      m.rotation.y = i * 1.7;
+      this.gardenStones.add(m);
+    });
   }
   /** A gold amount floating up the right side, like the XP drops. */
   moneyDrop(text: string, neg: boolean) {
@@ -1256,6 +1344,26 @@ export class World {
       this.goToFork();
       return;
     }
+    if (p.garden) {
+      if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
+      const P = this.P;
+      P.pendingStation = null;
+      P.pendingNpc = null;
+      P.pendingFork = false;
+      P.pendingShop = false;
+      if (P.x === GARDEN.ax && P.y === GARDEN.ay) {
+        P.face = Math.PI;
+        this.cb.openGarden();
+        return;
+      }
+      const path = findPath(P.x, P.y, GARDEN.ax, GARDEN.ay);
+      if (path) {
+        P.path = path;
+        P.pendingGarden = true;
+        this.cb.chat("You walk to the zen garden.", "sys");
+      }
+      return;
+    }
     if (p.shop) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
       const P = this.P;
@@ -1331,6 +1439,7 @@ export class World {
     P.pendingNpc = null;
     P.pendingFork = false;
     P.pendingShop = false;
+    P.pendingGarden = false;
   }
   private faceStation(s: Station) {
     const P = this.P;

@@ -12,6 +12,7 @@ import { futureLook, todayLook } from "../game/appearance";
 import { QUESTS, isFinished, statusOf, type Quest } from "../game/quests";
 import { QuestsPane } from "./QuestsPane";
 import { ShopPanel } from "./ShopPanel";
+import { GardenPanel } from "./GardenPanel";
 import { flowFor, gp, money, type ShopItem } from "../game/economy";
 import type { Custom } from "../game/data";
 import type { Wanderer } from "../game/wanderers";
@@ -32,6 +33,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [lines, setLines] = useState<Line[]>([]);
   const [menu, setMenu] = useState<{ s: Station; pos: { x: number; y: number } } | null>(null);
   const [talking, setTalking] = useState<Wanderer | null>(null);
+  const [gardenOpen, setGardenOpen] = useState(false);
   const [shop, setShop] = useState<"shop" | "wardrobe" | "bank" | null>(null);
   const [fork, setFork] = useState<{ years: number; path: "keep" | "slide" } | null>(null);
   const forkRef = useRef(fork);
@@ -125,6 +127,13 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         setGroundMenu(null);
         setTalking(null);
       },
+      openGarden: () => {
+        setMenu(null);
+        setGroundMenu(null);
+        setTalking(null);
+        setGardenOpen(true);
+        chat("You step into the garden. The village noise falls away.", "hint");
+      },
       openShop: () => {
         setMenu(null);
         setGroundMenu(null);
@@ -215,6 +224,12 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     delete quests[q.id];
     commit({ ...st, quests });
   };
+
+  // ---- zen garden ----
+  useEffect(() => {
+    worldRef.current?.setGarden(state.garden, state.created);
+  }, [state.garden, state.created]);
+  const saveGarden = (g: GameState["garden"]) => commit({ ...stateRef.current, garden: g });
 
   // ---- money, shop and wardrobe ----
   const purse = useMemo(() => money(state), [state]);
@@ -339,6 +354,17 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
             <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Explore beyond the village: keep, woods, farms, coast.</div>
+            {gardenOpen && (
+              <GardenPanel
+                state={state}
+                onSave={saveGarden}
+                onMeditate={(h) => {
+                  setGardenOpen(false);
+                  worldRef.current?.startAction(h);
+                }}
+                onClose={() => setGardenOpen(false)}
+              />
+            )}
             {shop && (
               <ShopPanel
                 key={shop}
