@@ -73,9 +73,18 @@ export interface Garden {
 
 export interface Custom {
   skin?: string;
-  hairStyle?: "short" | "long" | "bun" | "bald";
+  hairStyle?: "short" | "long" | "bun" | "bald" | "curly" | "ponytail" | "buzz" | "spiky";
   hair?: string;
-  beard?: boolean;
+  beard?: boolean; // older saves; facialHair takes over when set
+  facialHair?: "none" | "stubble" | "moustache" | "goatee" | "beard";
+  build?: "slim" | "average" | "broad";
+  height?: number; // 0.92..1.08
+  face?: "oval" | "round" | "square";
+  nose?: "small" | "medium" | "large";
+  eyes?: string;
+  brows?: "thin" | "normal" | "thick";
+  glasses?: "" | "round" | "square";
+  freckles?: boolean;
   top?: string; // item id of an owned dye
   hat?: string; // item id, or "" for none
   cape?: string; // item id, "" for none, undefined = whatever your level earns

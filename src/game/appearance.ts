@@ -107,7 +107,17 @@ function dress(p: PlayerAppearance, state: GameState, age: number): PlayerAppear
   if (c.skin) look.skin = c.skin;
   if (c.hairStyle) look.hairStyle = c.hairStyle;
   if (c.hair && age < 5) look.hair = c.hair;
-  if (c.beard) look.beard = look.hair;
+  if (c.facialHair) look.facialHair = c.facialHair;
+  else if (c.beard) look.facialHair = "beard";
+  if (look.facialHair && look.facialHair !== "none") look.beard = look.hair;
+  if (c.build) look.build = c.build;
+  if (c.height) look.height = Math.max(0.9, Math.min(1.1, c.height));
+  if (c.face) look.face = c.face;
+  if (c.nose) look.nose = c.nose;
+  if (c.eyes) look.eyes = c.eyes;
+  if (c.brows) look.brows = c.brows;
+  if (c.glasses) look.glasses = c.glasses;
+  if (c.freckles) look.freckles = true;
   if (owns(c.top)) look.top = ITEM[c.top!].color!;
   if (owns(c.hat)) {
     const it = ITEM[c.hat!];

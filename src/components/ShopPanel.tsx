@@ -113,21 +113,33 @@ export function ShopPanel({ state, c: computed, start, onBuy, onCustom, onWithdr
             </div>
             <h4>Hair style</h4>
             <div className="sh-row">
-              {(["short", "long", "bun", "bald"] as const).map((h) => (
+              {(["short", "long", "bun", "ponytail", "curly", "spiky", "buzz", "bald"] as const).map((h) => (
                 <button key={h} aria-pressed={(c.hairStyle ?? "short") === h} onClick={() => set({ hairStyle: h })}>
                   {h}
                 </button>
               ))}
             </div>
-            <h4>Beard</h4>
+            <h4>Facial hair</h4>
             <div className="sh-row">
-              <button aria-pressed={!c.beard} onClick={() => set({ beard: false })}>
-                none
-              </button>
-              <button aria-pressed={!!c.beard} onClick={() => set({ beard: true })}>
-                beard
-              </button>
+              {(["none", "stubble", "moustache", "goatee", "beard"] as const).map((f) => (
+                <button key={f} aria-pressed={(c.facialHair ?? (c.beard ? "beard" : "none")) === f} onClick={() => set({ facialHair: f, beard: f === "beard" })}>
+                  {f}
+                </button>
+              ))}
             </div>
+            <h4>Eyes</h4>
+            <div className="sh-swatches">
+              {EYES.map((s) => (
+                <button key={s} aria-label={"eyes " + s} aria-pressed={(c.eyes ?? EYES[0]) === s} style={{ background: s }} onClick={() => set({ eyes: s })} />
+              ))}
+            </div>
+            <Choice label="Build" value={c.build ?? "average"} options={["slim", "average", "broad"]} onPick={(v) => set({ build: v as Custom["build"] })} />
+            <Choice label="Height" value={HEIGHTS.find((x) => x[1] === (c.height ?? 1))?.[0] ?? "average"} options={HEIGHTS.map((x) => x[0])} onPick={(v) => set({ height: HEIGHTS.find((x) => x[0] === v)![1] })} />
+            <Choice label="Face" value={c.face ?? "oval"} options={["oval", "round", "square"]} onPick={(v) => set({ face: v as Custom["face"] })} />
+            <Choice label="Nose" value={c.nose ?? "medium"} options={["small", "medium", "large"]} onPick={(v) => set({ nose: v as Custom["nose"] })} />
+            <Choice label="Brows" value={c.brows ?? "normal"} options={["thin", "normal", "thick"]} onPick={(v) => set({ brows: v as Custom["brows"] })} />
+            <Choice label="Glasses" value={c.glasses || "none"} options={["none", "round", "square"]} onPick={(v) => set({ glasses: v === "none" ? "" : (v as "round" | "square") })} />
+            <Choice label="Freckles" value={c.freckles ? "yes" : "no"} options={["no", "yes"]} onPick={(v) => set({ freckles: v === "yes" })} />
             <h4>Cape</h4>
             <div className="sh-row">
               <button aria-pressed={c.cape === undefined} onClick={() => set({ cape: undefined })}>
@@ -200,5 +212,23 @@ export function ShopPanel({ state, c: computed, start, onBuy, onCustom, onWithdr
       </aside>
       </div>
     </div>
+  );
+}
+
+const EYES = ["#3a2a1a", "#6b4a22", "#4a6a8a", "#4a6a3a", "#6a6a6a"];
+const HEIGHTS: [string, number][] = [["short", 0.93], ["average", 1], ["tall", 1.07]];
+
+function Choice({ label, value, options, onPick }: { label: string; value: string; options: string[]; onPick: (v: string) => void }) {
+  return (
+    <>
+      <h4>{label}</h4>
+      <div className="sh-row">
+        {options.map((o) => (
+          <button key={o} aria-pressed={value === o} onClick={() => onPick(o)}>
+            {o}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
