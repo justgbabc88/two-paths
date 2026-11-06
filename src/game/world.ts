@@ -331,7 +331,7 @@ export class World {
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false, pendingGarden: false, pendingArrive: null as null | (() => void), sitting: false };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false, pendingGarden: false, pendingArrive: null as null | (() => void), sitting: false, focus: null as ActionId | null, pendingFocus: null as ActionId | null };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
@@ -1127,10 +1127,12 @@ export class World {
       wz = P.py + 0.5;
     this.pose(rig, wx, wz, this.inside ? this.inside.face : P.face, walking, P.walkT, dt, 11);
     if (this.inside) rig.root.position.set(ROOM_O.x + this.inside.x, walking ? Math.abs(Math.sin(P.walkT * 11)) * 0.025 : 0, ROOM_O.z + this.inside.z);
-    this.animateAction(rig, P.action?.id ?? (P.sitting && !P.path.length ? "meditate" : null), P.action ? P.actionT : now / 1000);
-    if (P.sitting && !P.action && (P.fxT -= dt) <= 0) {
-      this.fx.push({ text: "✦", t: 0, dx: (Math.random() - 0.5) * 18 });
-      P.fxT = 2.2;
+    const settled = !P.path.length && !this.inside?.path;
+    const loopId: ActionId | null = P.sitting && settled ? "meditate" : P.focus && settled ? P.focus : null;
+    this.animateAction(rig, P.action?.id ?? loopId, P.action ? P.actionT : now / 1000);
+    if (loopId && !P.action && (P.fxT -= dt) <= 0) {
+      this.fx.push({ text: loopId === "meditate" ? "✦" : ACTION[loopId].fx ?? "✦", t: 0, dx: (Math.random() - 0.5) * 18 });
+      P.fxT = loopId === "meditate" ? 2.2 : 3;
     }
     if (this.sail) {
       rig.root.position.set(this.ferry.position.x, this.ferry.position.y + 0.08, this.ferry.position.z);
@@ -1787,7 +1789,7 @@ export class World {
       this.leftClick(v);
       return;
     }
-    if (this.P.action || this.inMinimap(v.x, v.y)) return;
+    if (this.P.action || this.focusing || this.inMinimap(v.x, v.y)) return;
     const p = this.pick(v.x, v.y);
     if (p.npc) {
       this.goToNpc(p.npc);
@@ -1815,6 +1817,10 @@ export class World {
       return;
     }
     if (this.P.action || this.fade) return;
+    if (this.focusing) {
+      this.cb.chat("You're in a focus session. Stay with it, or end it from the timer.", "hint");
+      return;
+    }
     if (this.inside) {
       if (this.inMinimap(v.x, v.y)) this.leaveBuilding();
       else this.insideClick(v);
@@ -1970,7 +1976,7 @@ export class World {
   /** Walk to a ground tile (left click, minimap and the "Walk here" menu). */
   walkTo([tx, ty]: Pt) {
     const P = this.P;
-    if (P.action) return;
+    if (P.action || this.focusing) return;
     if (this.inside) {
       this.leaveBuilding(() => this.walkTo([tx, ty]));
       return;
@@ -1989,11 +1995,48 @@ export class World {
     P.pendingGarden = false;
     P.pendingArrive = null;
   }
+  // ---------------- timed focus sessions ----------------
+  /** Head to a station and keep doing `action` there until endFocus(). */
+  startFocus(stationId: StationId, action: ActionId) {
+    const P = this.P;
+    const s = STATIONS.find((x) => x.id === stationId)!;
+    this.cb.closeMenu();
+    P.focus = null;
+    P.pendingFocus = action;
+    this.lounging = null;
+    if (this.inside) {
+      if (this.inside.s.id === stationId) {
+        const I = this.inside;
+        I.path = [I.room.spot.x, I.room.spot.z];
+        I.arrive = () => this.atSpot();
+        return;
+      }
+      this.exitRoom();
+    }
+    if (this.acrossWater(s.ax, s.ay) || !findPath(P.x, P.y, s.ax, s.ay)) {
+      // too far to walk (or across the water): you're simply there
+      this.debugTeleport(s.ax, s.ay);
+    }
+    this.goToStation(s);
+  }
+  endFocus() {
+    this.P.focus = null;
+    this.P.pendingFocus = null;
+  }
+  get focusing() {
+    return !!(this.P.focus || this.P.pendingFocus);
+  }
+
   // ---------------- buildings you can walk into ----------------
   private arriveStation(s: Station) {
     if (hasInterior(s.id)) this.enterBuilding(s);
     else {
       this.faceStation(s);
+      if (this.P.pendingFocus) {
+        this.P.focus = this.P.pendingFocus;
+        this.P.pendingFocus = null;
+        return;
+      }
       this.cb.openStation(s, this.stationScreenPos(s));
     }
   }
@@ -2033,6 +2076,11 @@ export class World {
     const I = this.inside;
     if (!I) return;
     I.face = I.room.spot.face;
+    if (this.P.pendingFocus) {
+      this.P.focus = this.P.pendingFocus;
+      this.P.pendingFocus = null;
+      return;
+    }
     const p = this.project(ROOM_O.x + I.room.spot.x, 1.5, ROOM_O.z + I.room.spot.z);
     this.cb.openStation(I.s, { x: p.x + 30, y: p.y - 40 });
   }
@@ -2150,7 +2198,7 @@ export class World {
     // WASD steps one tile, relative to where the camera is looking
     const k = ({ w: 0, d: 1, s: 2, a: 3 } as Record<string, number>)[e.key.toLowerCase()];
     const P = this.P;
-    if (k === undefined || P.action || P.path.length || this.inside) return;
+    if (k === undefined || P.action || P.path.length || this.inside || this.focusing) return;
     e.preventDefault();
     const ang = -this.cam.yaw + (k * Math.PI) / 2;
     const fx = Math.round(Math.sin(ang)),

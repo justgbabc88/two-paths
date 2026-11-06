@@ -21,6 +21,9 @@ import type { Wanderer } from "../game/wanderers";
 import { StatsPane } from "./StatsPane";
 import { FREEZE_PRICE, MAX_FREEZES, RARITY_COLOR, STREAK_MILESTONES, freezesNeeded, lootLog, milestoneBounty, newMilestones, streakBounty, streakInfo } from "../game/rewards";
 import { isMuted, setMuted, sfx } from "../game/sfx";
+import { FOCUS, focusAt, habitForSession, loadSession, saveSession, type FocusKind, type Session } from "../game/sessions";
+import { FocusPicker, FocusTimer } from "./FocusPanel";
+import { bell } from "../game/meditation";
 
 type Tab = "stats" | "future" | "quests" | "habits";
 interface Line { id: number; text: string; cls?: string }
@@ -47,6 +50,9 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const forkRef = useRef(fork);
   forkRef.current = fork;
   const [indoors, setIndoors] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(loadSession);
+  const [picker, setPicker] = useState<{ kind?: FocusKind } | null>(null);
+  const wakeRef = useRef<{ release(): Promise<void> } | null>(null);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [muted, setMute] = useState(isMuted);
   const [groundMenu, setGroundMenu] = useState<{ tile: [number, number]; pos: { x: number; y: number } } | null>(null);
@@ -239,6 +245,8 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     });
     worldRef.current = w;
     w.setVolleyBest(stateRef.current.bestRally ?? 0);
+    const running = loadSession();
+    if (running) w.startFocus(FOCUS[running.kind].station, FOCUS[running.kind].action); // pick a session back up after a refresh
     if (import.meta.env.DEV) (window as unknown as { __world: World }).__world = w; // for local testing only
     return () => {
       w.destroy();
@@ -284,6 +292,76 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
     delete quests[q.id];
     commit({ ...st, quests });
   };
+
+  // ---- timed focus sessions ----
+  const keepAwake = async (on: boolean) => {
+    try {
+      if (on) {
+        const nav = navigator as Navigator & { wakeLock?: { request(t: "screen"): Promise<{ release(): Promise<void> }> } };
+        wakeRef.current = (await nav.wakeLock?.request("screen")) ?? null;
+      } else {
+        await wakeRef.current?.release();
+        wakeRef.current = null;
+      }
+    } catch {
+      /* not supported, or the tab is hidden */
+    }
+  };
+  const startSession = (kind: FocusKind, min: number) => {
+    const s: Session = { kind, min, start: Date.now() };
+    saveSession(s);
+    setSession(s);
+    setPicker(null);
+    setMenu(null);
+    const f = FOCUS[kind];
+    worldRef.current?.startFocus(f.station, f.action);
+    chat(`${f.ico} ${min}-minute ${f.label.toLowerCase()} session started. Do it for real; your character is doing it with you.`, "lvl");
+    if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission();
+    void keepAwake(true);
+  };
+  const endSession = useCallback(
+    (credit: number | null) => {
+      const s = loadSession();
+      saveSession(null);
+      setSession(null);
+      void keepAwake(false);
+      worldRef.current?.endFocus();
+      if (!s) return;
+      const f = FOCUS[s.kind];
+      if (!credit) {
+        chat(`Session ended before ${f.lengths[0].min} minutes. Not logged, but it still counts for something.`, "sys");
+        return;
+      }
+      let st = stateRef.current;
+      const found = habitForSession(st, s.kind, credit);
+      let habit: Habit;
+      if (found.isNew) {
+        habit = { id: uid(), ...(found.habit as Omit<Habit, "id">) };
+        st = { ...st, habits: [...st.habits, habit] };
+        commit(st);
+        chat(`Added habit: ${habit.name}.`, "hint");
+      } else habit = found.habit as Habit;
+      setViewDay(dayKey(new Date()));
+      viewDayRef.current = dayKey(new Date());
+      bell();
+      chat(`The bell rings. ${credit} minutes of ${f.label.toLowerCase()}, done for real.`, "lvl");
+      try {
+        if ("Notification" in window && Notification.permission === "granted" && document.visibilityState === "hidden")
+          new Notification("Two Paths", { body: `${f.ico} ${credit} minutes of ${f.label.toLowerCase()} done. Logged.` });
+      } catch {
+        /* ignore */
+      }
+      worldRef.current?.startAction(habit);
+    },
+    [chat, commit],
+  );
+  const sessionDone = useCallback(() => {
+    // deferred so the world exists when a session finishes during a page load
+    setTimeout(() => {
+      const s = loadSession();
+      if (s) endSession(s.min);
+    }, 300);
+  }, [endSession]);
 
   // ---- rewards: level milestones and streak freezes (only once real data has loaded) ----
   const loaded = sync !== "loading";
@@ -457,6 +535,9 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
               <button onClick={() => setShop("wardrobe")} title="Change how you look">
                 Wardrobe
               </button>
+              <button onClick={() => (session ? null : setPicker({}))} title="Start a timed deep work, study or meditation session" disabled={!!session}>
+                ⏱ Focus
+              </button>
               <button onClick={() => setCalendar(true)} title="Look back at what you did">
                 📅 Calendar
               </button>
@@ -476,7 +557,20 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
           <div className="viewport">
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
-            {indoors && !menu && (
+            {session && (
+              <FocusTimer
+                key={session.start}
+                session={session}
+                onDone={sessionDone}
+                onEnd={() => {
+                  const el = Math.floor((Date.now() - session.start) / 1000);
+                  const credit = [...FOCUS[session.kind].lengths].reverse().find((l) => el >= l.min * 60);
+                  endSession(credit ? credit.min : null);
+                }}
+              />
+            )}
+            {picker && <FocusPicker start={picker.kind} onStart={startSession} onClose={() => setPicker(null)} />}
+            {indoors && !menu && !session && (
               <button className="leave" onClick={() => worldRef.current?.leaveBuilding()}>
                 ⇦ Leave the {indoors.toLowerCase()}
               </button>
@@ -609,6 +703,10 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
                 onDo={onDo}
                 onUndo={onUndo}
                 onExamine={onExamine}
+                onFocus={(s) => {
+                  setMenu(null);
+                  setPicker({ kind: focusAt(s.id)?.kind });
+                }}
                 onClose={() => setMenu(null)}
               />
             )}

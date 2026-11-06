@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { SK, type GameState, type Habit } from "../game/data";
 import { VIEW_W, habitsAtStation, type Station } from "../game/world";
+import { focusAt } from "../game/sessions";
 
 interface Props {
   station: Station;
@@ -11,6 +12,7 @@ interface Props {
   onDo(h: Habit, note: string): void;
   onUndo(s: Station): void;
   onExamine(s: Station): void;
+  onFocus?(s: Station): void;
   onClose(): void;
 }
 
@@ -48,7 +50,8 @@ export function GroundMenu({ pos, canvas, onWalk, onClose }: { pos: { x: number;
   );
 }
 
-export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onUndo, onExamine, onClose }: Props) {
+export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onUndo, onExamine, onFocus, onClose }: Props) {
+  const focus = focusAt(s.id);
   const ref = useRef<HTMLDivElement>(null);
   const habits = habitsAtStation(s, state.habits);
   const log = state.logs[viewDay] || {};
@@ -99,6 +102,11 @@ export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onU
           </button>
         );
       })}
+      {focus && onFocus && (
+        <button className="focus" onClick={() => onFocus(s)}>
+          ⏱ Timed {focus.label.toLowerCase()} session… <span>you do it for real, the timer logs it</span>
+        </button>
+      )}
       <button className="cancel" onClick={() => onUndo(s)}>
         Undo last rep here
       </button>
