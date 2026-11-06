@@ -230,7 +230,7 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
       head.add(part(new THREE.CylinderGeometry(0.25, 0.25, 0.025, 6), c, 0, 0.1, 0));
       head.add(part(new THREE.CylinderGeometry(0.11, 0.14, 0.14, 6), c, 0, 0.18, 0));
     } else if (look.hat.kind === "hood") {
-      head.add(part(new THREE.SphereGeometry(0.176, 6, 4, -Math.PI * 0.85, Math.PI * 1.7).scale(1, 1.1, 1.05), c, 0, 0.01, -0.01));
+      head.add(part(new THREE.SphereGeometry(0.176, 8, 4, Math.PI * 0.85, Math.PI * 1.3) /* opening faces +z (the face) */.scale(1, 1.1, 1.05), c, 0, 0.01, -0.01));
     } else if (look.hat.kind === "cap") {
       head.add(part(new THREE.SphereGeometry(0.157, 6, 2, 0, Math.PI * 2, 0, Math.PI * 0.45), c, 0, 0.03, 0));
       head.add(part(new THREE.CylinderGeometry(0.1, 0.1, 0.015, 6, 1, false, -Math.PI / 2, Math.PI), c, 0, 0.05, 0.11));

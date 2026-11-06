@@ -343,6 +343,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
               <ShopPanel
                 key={shop}
                 state={state}
+                c={c}
                 start={shop}
                 onBuy={buyItem}
                 onCustom={setCustom}

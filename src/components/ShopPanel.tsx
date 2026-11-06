@@ -1,9 +1,13 @@
 import { useState } from "react";
 import type { Custom, GameState } from "../game/data";
-import { BANK_RATE, ITEMS, flowFor, gp, money, type ShopItem } from "../game/economy";
+import { BANK_RATE, ITEM, ITEMS, flowFor, gp, money, type ShopItem } from "../game/economy";
+import { todayLook } from "../game/appearance";
+import type { Computed } from "../game/logic";
+import { CharacterPreview } from "./CharacterPreview";
 
 interface Props {
   state: GameState;
+  c: Computed;
   start: "shop" | "wardrobe" | "bank";
   onBuy(item: ShopItem): void;
   onCustom(c: Custom): void;
@@ -22,7 +26,8 @@ const SLOTS: { slot: ShopItem["slot"]; label: string; key: keyof Custom }[] = [
 ];
 
 // The general store: shop, wardrobe and bank in one panel.
-export function ShopPanel({ state, start, onBuy, onCustom, onWithdraw, onClose }: Props) {
+export function ShopPanel({ state, c: computed, start, onBuy, onCustom, onWithdraw, onClose }: Props) {
+  const [trial, setTrial] = useState<string | null>(null); // item being tried on
   const [tab, setTab] = useState(start);
   const [amount, setAmount] = useState("");
   const m = money(state);
@@ -31,6 +36,15 @@ export function ShopPanel({ state, start, onBuy, onCustom, onWithdraw, onClose }
   const set = (patch: Custom) => onCustom({ ...c, ...patch });
 
   const flows = state.habits.map((h) => ({ h, f: flowFor(h) }));
+
+  // what the preview shows: your current look, plus whatever you're trying on
+  const slotKey = { top: "top", hat: "hat", cape: "cape", accessory: "accessory", pet: "pet" } as const;
+  const trialItem = trial ? ITEM[trial] : null;
+  const previewState: GameState = trialItem
+    ? { ...state, owned: [...(state.owned ?? []), trialItem.id], custom: { ...c, [slotKey[trialItem.slot]]: trialItem.id } }
+    : state;
+  const preview = todayLook(previewState, computed).player;
+  const tryOn = (id: string | null) => setTrial(id);
   return (
     <div className="shop" role="dialog" aria-label="General store">
       <div className="sh-head">
@@ -48,7 +62,8 @@ export function ShopPanel({ state, start, onBuy, onCustom, onWithdraw, onClose }
           </button>
         ))}
       </nav>
-      <div className="sh-body">
+      <div className="sh-main">
+      <div className="sh-body" onMouseLeave={() => tryOn(null)}>
         {tab === "shop" &&
           SLOTS.map(({ slot, label, key }) => (
             <div key={slot}>
@@ -58,7 +73,15 @@ export function ShopPanel({ state, start, onBuy, onCustom, onWithdraw, onClose }
                   const has = owned.has(it.id);
                   const worn = c[key] === it.id;
                   return (
-                    <div key={it.id} className={"sh-item" + (worn ? " worn" : "")} title={it.blurb}>
+                    <div
+                      key={it.id}
+                      className={"sh-item" + (worn ? " worn" : "") + (trial === it.id ? " trying" : "")}
+                      title={it.blurb}
+                      tabIndex={0}
+                      onMouseEnter={() => tryOn(it.id)}
+                      onFocus={() => tryOn(it.id)}
+                      onClick={() => tryOn(it.id)}
+                    >
                       <span className="sw" style={{ background: it.color ?? (it.pet === "dog" ? "#9a6a3a" : it.pet === "cat" ? "#5a5a62" : "#6b4a2a") }} />
                       <span className="nm">{it.name}</span>
                       {has ? (
@@ -165,6 +188,16 @@ export function ShopPanel({ state, start, onBuy, onCustom, onWithdraw, onClose }
             <p className="note">Work pays the most. Other good habits pay a little. Saving goes to the bank. Vices cost you, like they do in real life. Quests pay a bounty.</p>
           </div>
         )}
+      </div>
+      <aside className="sh-preview">
+        <CharacterPreview appearance={preview} label={trialItem ? `Trying on: ${trialItem.name}` : "You"} />
+        {trialItem && !owned.has(trialItem.id) && (
+          <button className="buy" disabled={m.wallet < trialItem.price} onClick={() => confirm(`Buy ${trialItem.name} for ${gp(trialItem.price)}?`) && onBuy(trialItem)}>
+            Buy for {gp(trialItem.price)}
+          </button>
+        )}
+        <p className="note">{trialItem ? trialItem.blurb : "Hover or tap an item to try it on. Drag to turn."}</p>
+      </aside>
       </div>
     </div>
   );
