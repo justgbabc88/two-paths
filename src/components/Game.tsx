@@ -46,6 +46,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [fork, setFork] = useState<{ years: number; path: "keep" | "slide" } | null>(null);
   const forkRef = useRef(fork);
   forkRef.current = fork;
+  const [indoors, setIndoors] = useState<string | null>(null);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [muted, setMute] = useState(isMuted);
   const [groundMenu, setGroundMenu] = useState<{ tile: [number, number]; pos: { x: number; y: number } } | null>(null);
@@ -146,6 +147,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         setGroundMenu(null);
         setTalking(null);
       },
+      inside: (name) => setIndoors(name),
       volley: (v) => {
         setVolley((old) => (old && v && old.rally === v.rally && old.best === v.best && old.window === v.window ? old : v));
         const saved = stateRef.current.bestRally ?? 0;
@@ -474,6 +476,11 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
           <div className="viewport">
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
+            {indoors && !menu && (
+              <button className="leave" onClick={() => worldRef.current?.leaveBuilding()}>
+                ⇦ Leave the {indoors.toLowerCase()}
+              </button>
+            )}
             {banners[0] && (
               <div key={banners[0].id} className={"banner" + (banners[0].big ? " big" : "")} style={{ "--rc": banners[0].color } as React.CSSProperties} onClick={() => setBanners((bs) => bs.slice(1))}>
                 <small>{banners[0].kicker}</small>

@@ -13,6 +13,10 @@ import { drawSurfShow } from "./surftv";
 import type { Garden } from "./data";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
+import { buildInterior, disposeRoom, hasInterior, type Room } from "./interiors";
+
+/** Interiors are built far from the map, beyond the camera's far plane from anywhere outside. */
+const ROOM_O = { x: 600, z: 600 };
 
 export { STATIONS, habitsAtStation, type Station } from "./map";
 
@@ -40,6 +44,8 @@ export interface WorldCallbacks {
   openGarden(): void;
   /** Volleyball state changed (null = stopped). */
   volley(v: { rally: number; best: number; window: boolean } | null): void;
+  /** Entered (room name) or left (null) a building. */
+  inside?(name: string | null): void;
 }
 
 interface Npc {
@@ -334,6 +340,9 @@ export class World {
   private fx: { text: string; t: number; dx: number }[] = [];
   private questGivers = new Set<string>();
   private hover: { x: number; y: number } | null = null;
+  private inside: { s: Station; room: Room; x: number; z: number; path: [number, number] | null; arrive: null | (() => void); face: number } | null = null;
+  private fade: { t: number; mid: (() => void) | null } | null = null;
+  private savedCam: { yaw: number; pitch: number; dist: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private drag: { id: number; sx: number; sy: number; lx: number; ly: number; moved: boolean } | null = null;
   private pinch: number | null = null;
@@ -902,7 +911,7 @@ export class World {
     }
     // click markers
     this.markers.forEach((m) => {
-      const p = this.project(m.x, groundAt(m.x, m.z) + 0.05, m.z);
+      const p = this.project(m.x, (this.inside ? 0 : groundAt(m.x, m.z)) + 0.05, m.z);
       const k = Math.min(1, m.t / 0.5),
         r = 7 - k * 3;
       ctx.globalAlpha = 1 - k * 0.6;
@@ -943,7 +952,15 @@ export class World {
       let verb = "",
         name = "";
       if (this.inCompass(this.hover.x, this.hover.y)) verb = "Face North";
-      else {
+      else if (this.inside) {
+        const p = this.pickInside(this.hover.x, this.hover.y);
+        if (p.door) {
+          verb = "Leave";
+          name = " " + this.inside.room.name;
+        } else if (p.spot) {
+          verb = this.inside.room.spot.label;
+        } else if (p.floor) verb = "Walk here";
+      } else {
         const p = this.pick(this.hover.x, this.hover.y);
         if (p.fork) {
           verb = "Look-through";
@@ -990,6 +1007,11 @@ export class World {
         if (name) t(name, 8 + ctx.measureText(verb).width, verb === "Talk-to" ? "#f2e04a" : "#5fe0e0");
       }
     }
+    if (this.fade) {
+      const t = this.fade.t;
+      ctx.fillStyle = `rgba(10,7,4,${t < 0.28 ? t / 0.28 : Math.max(0, 1 - (t - 0.28) / 0.34)})`;
+      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    }
     void now;
   }
 
@@ -1024,8 +1046,7 @@ export class World {
         if (!P.path.length && P.pendingStation) {
           const s = P.pendingStation;
           P.pendingStation = null;
-          this.faceStation(s);
-          this.cb.openStation(s, this.stationScreenPos(s));
+          this.arriveStation(s);
         }
         if (!P.path.length && P.pendingArrive) {
           const f = P.pendingArrive;
@@ -1059,6 +1080,38 @@ export class World {
         P.py += (dy / dist) * speed * dt;
       }
     }
+    const I = this.inside;
+    if (I && I.path && !P.action) {
+      walking = true;
+      P.walkT += dt;
+      const [tx, tz] = I.path;
+      const dx = tx - I.x,
+        dz = tz - I.z,
+        dist = Math.hypot(dx, dz),
+        speed = 2.4;
+      if (dist > 0.001) I.face = Math.atan2(dx, dz);
+      if (dist <= speed * dt) {
+        I.x = tx;
+        I.z = tz;
+        I.path = null;
+        const f = I.arrive;
+        I.arrive = null;
+        f?.();
+      } else {
+        I.x += (dx / dist) * speed * dt;
+        I.z += (dz / dist) * speed * dt;
+      }
+    }
+    if (I) I.room.update(now / 1000);
+    if (this.fade) {
+      this.fade.t += realDt;
+      if (this.fade.t >= 0.28 && this.fade.mid) {
+        const m = this.fade.mid;
+        this.fade.mid = null;
+        m();
+      }
+      if (this.fade.t >= 0.62) this.fade = null;
+    }
     if (P.action) {
       P.actionT += realDt;
       const def = ACTION[P.action.id];
@@ -1072,7 +1125,8 @@ export class World {
     // character pose
     const wx = P.px + 0.5,
       wz = P.py + 0.5;
-    this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
+    this.pose(rig, wx, wz, this.inside ? this.inside.face : P.face, walking, P.walkT, dt, 11);
+    if (this.inside) rig.root.position.set(ROOM_O.x + this.inside.x, walking ? Math.abs(Math.sin(P.walkT * 11)) * 0.025 : 0, ROOM_O.z + this.inside.z);
     this.animateAction(rig, P.action?.id ?? (P.sitting && !P.path.length ? "meditate" : null), P.action ? P.actionT : now / 1000);
     if (P.sitting && !P.action && (P.fxT -= dt) <= 0) {
       this.fx.push({ text: "✦", t: 0, dx: (Math.random() - 0.5) * 18 });
@@ -1140,7 +1194,7 @@ export class World {
         pt.face = Math.atan2(dx, dz);
       }
       pt.t += dt * (moving ? 14 : 2);
-      pt.rig.root.position.set(pt.x, standY(pt.x, pt.z), pt.z);
+      pt.rig.root.position.set(pt.x, this.inside ? 0 : standY(pt.x, pt.z), pt.z);
       let df = pt.face - pt.rig.root.rotation.y;
       df = Math.atan2(Math.sin(df), Math.cos(df));
       pt.rig.root.rotation.y += df * Math.min(1, dt * 8);
@@ -1163,9 +1217,17 @@ export class World {
     });
     // camera follows the player
     const k = 1 - Math.pow(0.002, dt);
-    this.cam.tx += (wx - this.cam.tx) * k;
-    this.cam.tz += (wz - this.cam.tz) * k;
-    const ty = standY(this.cam.tx, this.cam.tz) + 0.7;
+    const IN = this.inside;
+    const fx = IN ? ROOM_O.x + IN.room.w / 2 + (IN.x - IN.room.w / 2) * 0.45 : wx,
+      fz = IN ? ROOM_O.z + IN.room.d / 2 + (IN.z - IN.room.d / 2) * 0.35 : wz;
+    if (IN) {
+      this.cam.yaw = Math.max(-0.75, Math.min(0.75, this.cam.yaw));
+      this.cam.pitch = Math.max(0.45, Math.min(1.1, this.cam.pitch));
+      this.cam.dist = Math.min(10, this.cam.dist);
+    }
+    this.cam.tx += (fx - this.cam.tx) * k;
+    this.cam.tz += (fz - this.cam.tz) * k;
+    const ty = IN ? 0.9 : standY(this.cam.tx, this.cam.tz) + 0.7;
     const { yaw, pitch, dist } = this.cam;
     this.camera.position.set(this.cam.tx + Math.sin(yaw) * Math.cos(pitch) * dist, ty + Math.sin(pitch) * dist, this.cam.tz + Math.cos(yaw) * Math.cos(pitch) * dist);
     this.camera.lookAt(this.cam.tx, ty, this.cam.tz);
@@ -1721,6 +1783,10 @@ export class World {
   private onContext = (e: MouseEvent) => {
     e.preventDefault();
     const v = this.viewPos(e);
+    if (this.inside) {
+      this.leftClick(v);
+      return;
+    }
     if (this.P.action || this.inMinimap(v.x, v.y)) return;
     const p = this.pick(v.x, v.y);
     if (p.npc) {
@@ -1748,7 +1814,12 @@ export class World {
       this.cam.yaw = 0;
       return;
     }
-    if (this.P.action) return;
+    if (this.P.action || this.fade) return;
+    if (this.inside) {
+      if (this.inMinimap(v.x, v.y)) this.leaveBuilding();
+      else this.insideClick(v);
+      return;
+    }
     if (this.inMinimap(v.x, v.y)) {
       const c = this.mmCenter();
       const dx = v.x - c.x,
@@ -1888,6 +1959,7 @@ export class World {
   }
   /** Development aid: jump straight to a tile (only exposed in dev builds). */
   debugTeleport(x: number, y: number) {
+    if (this.inside) this.exitRoom();
     const P = this.P;
     P.path = [];
     P.x = P.px = x;
@@ -1899,6 +1971,10 @@ export class World {
   walkTo([tx, ty]: Pt) {
     const P = this.P;
     if (P.action) return;
+    if (this.inside) {
+      this.leaveBuilding(() => this.walkTo([tx, ty]));
+      return;
+    }
     const path = findPath(P.x, P.y, tx, ty);
     if (!path) {
       if (this.acrossWater(tx, ty)) this.viaFerry(() => this.walkTo([tx, ty]));
@@ -1913,6 +1989,126 @@ export class World {
     P.pendingGarden = false;
     P.pendingArrive = null;
   }
+  // ---------------- buildings you can walk into ----------------
+  private arriveStation(s: Station) {
+    if (hasInterior(s.id)) this.enterBuilding(s);
+    else {
+      this.faceStation(s);
+      this.cb.openStation(s, this.stationScreenPos(s));
+    }
+  }
+  /** Walk in through the door: fade, build the room, and head to the work spot. */
+  enterBuilding(s: Station) {
+    if (this.fade || this.inside) return;
+    this.cb.closeMenu();
+    this.fade = {
+      t: 0,
+      mid: () => {
+        const a = this.look?.stations[s.id] ?? { tier: 0, neglect: 0, vice: 0 };
+        const room = buildInterior(s.id, a);
+        if (!room) return;
+        room.group.position.set(ROOM_O.x, 0, ROOM_O.z);
+        this.scene.add(room.group);
+        this.inside = { s, room, x: room.door.x, z: room.door.z - 0.2, path: [room.spot.x, room.spot.z], arrive: () => this.atSpot(), face: Math.PI };
+        this.savedCam = { yaw: this.cam.yaw, pitch: this.cam.pitch, dist: this.cam.dist };
+        this.cam.yaw = 0;
+        this.cam.pitch = 0.62;
+        this.cam.dist = 7.6;
+        this.cam.tx = ROOM_O.x + room.w / 2;
+        this.cam.tz = ROOM_O.z + room.d / 2;
+        (this.scene.background as THREE.Color).set("#120c08");
+        const f = this.scene.fog as THREE.Fog;
+        f.near = 40;
+        f.far = 90;
+        if (this.pet) {
+          this.pet.x = ROOM_O.x + room.door.x + 0.5;
+          this.pet.z = ROOM_O.z + room.door.z - 0.1;
+        }
+        this.cb.inside?.(room.name);
+        this.cb.chat(`You step inside the ${room.name.toLowerCase()}.`, "sys");
+      },
+    };
+  }
+  private atSpot() {
+    const I = this.inside;
+    if (!I) return;
+    I.face = I.room.spot.face;
+    const p = this.project(ROOM_O.x + I.room.spot.x, 1.5, ROOM_O.z + I.room.spot.z);
+    this.cb.openStation(I.s, { x: p.x + 30, y: p.y - 40 });
+  }
+  /** Step back out through the door (with a fade). */
+  leaveBuilding(then?: () => void) {
+    if (!this.inside || this.fade || this.P.action) return;
+    this.cb.closeMenu();
+    this.fade = {
+      t: 0,
+      mid: () => {
+        this.exitRoom();
+        then?.();
+      },
+    };
+  }
+  private exitRoom() {
+    const I = this.inside;
+    if (!I) return;
+    this.scene.remove(I.room.group);
+    disposeRoom(I.room);
+    this.inside = null;
+    if (this.savedCam) Object.assign(this.cam, this.savedCam);
+    this.savedCam = null;
+    this.setMood(this.mood);
+    const P = this.P;
+    P.face = 0;
+    this.cam.tx = P.px + 0.5;
+    this.cam.tz = P.py + 0.5;
+    if (this.pet) {
+      this.pet.x = P.px + 0.5;
+      this.pet.z = P.py + 1.1;
+    }
+    this.cb.inside?.(null);
+  }
+  private pickInside(vx: number, vy: number): { door?: boolean; spot?: boolean; floor?: THREE.Vector3 } {
+    const I = this.inside;
+    if (!I) return {};
+    this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
+    const hits = this.ray.intersectObject(I.room.group, true);
+    for (const h of hits) {
+      let o: THREE.Object3D | null = h.object;
+      while (o && o !== I.room.group && !o.userData.door && !o.userData.spot && !o.userData.floor) o = o.parent;
+      if (o?.userData.door) return { door: true };
+      if (o?.userData.spot) return { spot: true };
+      if (o?.userData.floor) return { floor: h.point };
+    }
+    // nothing hit: aim at the floor plane
+    const pt = new THREE.Vector3();
+    if (this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), pt)) {
+      const lx = pt.x - ROOM_O.x,
+        lz = pt.z - ROOM_O.z;
+      if (lx > 0 && lx < I.room.w && lz > 0 && lz < I.room.d + 0.6) return lz > I.room.d - 0.1 && Math.abs(lx - I.room.door.x) < 0.8 ? { door: true } : { floor: pt };
+    }
+    return {};
+  }
+  private insideClick(v: { x: number; y: number }) {
+    const I = this.inside!;
+    const p = this.pickInside(v.x, v.y);
+    if (p.door) {
+      I.path = [I.room.door.x, I.room.door.z - 0.2];
+      I.arrive = () => this.leaveBuilding();
+      return;
+    }
+    if (p.spot) {
+      I.path = [I.room.spot.x, I.room.spot.z];
+      I.arrive = () => this.atSpot();
+      return;
+    }
+    if (p.floor) {
+      const lx = Math.max(0.4, Math.min(I.room.w - 0.4, p.floor.x - ROOM_O.x)),
+        lz = Math.max(0.4, Math.min(I.room.d - 0.3, p.floor.z - ROOM_O.z));
+      this.markers.push({ x: ROOM_O.x + lx, z: ROOM_O.z + lz, t: 0, red: false });
+      I.path = [lx, lz];
+      I.arrive = null;
+    }
+  }
   private faceStation(s: Station) {
     const P = this.P;
     P.face = Math.atan2(s.x + s.w / 2 - (P.x + 0.5), s.y + s.h / 2 - (P.y + 0.5));
@@ -1920,8 +2116,7 @@ export class World {
   private goToStation(s: Station) {
     const P = this.P;
     if (P.x === s.ax && P.y === s.ay) {
-      this.faceStation(s);
-      this.cb.openStation(s, this.stationScreenPos(s));
+      this.arriveStation(s);
       return;
     }
     const path = findPath(P.x, P.y, s.ax, s.ay);
@@ -1955,7 +2150,7 @@ export class World {
     // WASD steps one tile, relative to where the camera is looking
     const k = ({ w: 0, d: 1, s: 2, a: 3 } as Record<string, number>)[e.key.toLowerCase()];
     const P = this.P;
-    if (k === undefined || P.action || P.path.length) return;
+    if (k === undefined || P.action || P.path.length || this.inside) return;
     e.preventDefault();
     const ang = -this.cam.yaw + (k * Math.PI) / 2;
     const fx = Math.round(Math.sin(ang)),
