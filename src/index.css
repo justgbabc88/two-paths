@@ -405,3 +405,16 @@ canvas.gl{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto}
   .topbtns{flex-wrap:wrap}
   .topbtns button.wallet small,.topbtns .sync{display:none}
 }
+/* meditation timer */
+.gd-sit{align-items:center}
+.gd-sit-label{color:#a8b08a;font-size:12px}
+.gd-sit button.len small{color:#a8c890;margin-left:3px}
+.gd-sitview{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center}
+.gd-sitview .breath{width:150px;height:150px;border-radius:50%;background:radial-gradient(circle,#e8f0d0 0%,#a8c890 45%,rgba(120,150,90,.15) 70%);animation:breathe 12s ease-in-out infinite;box-shadow:0 0 40px rgba(200,230,160,.35)}
+@keyframes breathe{0%{transform:scale(.55)}33%{transform:scale(1)}66%{transform:scale(1)}100%{transform:scale(.55)}}
+.gd-sitview .cue{font-size:18px;color:#e8f0d0;letter-spacing:.05em}
+.gd-sitview .clock{font-family:"Silkscreen",monospace;font-size:28px;color:#cfe0a8}
+.gd-sitview .note{max-width:420px;margin:0;color:#a8b08a}
+.gd-sitview button{background:#2a2a1e;border:1px solid #6a7050;color:#c8cdb0;padding:5px 12px}
+@media (prefers-reduced-motion: reduce){.gd-sitview .breath{animation:none}}
+.garden.sitting{background:rgba(20,22,16,.42);border-color:rgba(122,138,90,.6)}

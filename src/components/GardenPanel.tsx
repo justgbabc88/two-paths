@@ -3,11 +3,15 @@ import type { Garden, GameState, Habit } from "../game/data";
 import { DEFAULT_GARDEN, GARDEN_ASPECT, MAX_STONES, MAX_STROKES, drawGarden, leavesFor } from "../game/garden";
 import { actionFor } from "../game/actions";
 import { dayKey } from "../game/logic";
+import { SITS, bell, creditedSit } from "../game/meditation";
 
 interface Props {
   state: GameState;
   onSave(g: Garden): void;
   onMeditate(h: Habit): void;
+  onSitStart(min: number): void;
+  /** A timed sit ended: `min` is the length credited, or null if under 5 minutes. */
+  onSitEnd(min: number | null): void;
   onClose(): void;
 }
 type Tool = "rake" | "smooth" | "stones";
@@ -17,7 +21,26 @@ const W = 600,
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
 // Rake the sand, move the stones, sweep up the leaves. Then sit.
-export function GardenPanel({ state, onSave, onMeditate, onClose }: Props) {
+export function GardenPanel({ state, onSave, onMeditate, onSitStart, onSitEnd, onClose }: Props) {
+  const [sit, setSit] = useState<{ min: number; start: number } | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!sit) return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [sit]);
+  const elapsed = sit ? Math.floor((now - sit.start) / 1000) : 0;
+  const finish = (early: boolean) => {
+    if (!sit) return;
+    const credit = early ? creditedSit(elapsed) : SITS.find((x) => x.min === sit.min)!;
+    bell();
+    setSit(null);
+    onSitEnd(credit ? credit.min : null);
+  };
+  useEffect(() => {
+    if (sit && elapsed >= sit.min * 60) finish(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elapsed]);
   const [g, setG] = useState<Garden>(() => structuredClone(state.garden ?? DEFAULT_GARDEN));
   const [tool, setTool] = useState<Tool>("rake");
   const [sitting, setSitting] = useState(false);
@@ -90,14 +113,25 @@ export function GardenPanel({ state, onSave, onMeditate, onClose }: Props) {
   };
 
   return (
-    <div className="garden" role="dialog" aria-label="Zen garden">
+    <div className={"garden" + (sit ? " sitting" : "")} role="dialog" aria-label="Zen garden">
       <div className="gd-head">
         <b>Zen garden</b>
         <span className="note">{leaves.length ? `${leaves.length} leaves have fallen since you last tended it.` : "Swept and still."}</span>
-        <button className="gd-x" onClick={onClose}>
+        <button
+          className="gd-x"
+          onClick={() => {
+            if (sit && !confirm("End your sit now? You'll be credited for the longest session length you completed.")) return;
+            if (sit) finish(true);
+            onClose();
+          }}
+        >
           Leave
         </button>
       </div>
+      {sit ? (
+        <SitView min={sit.min} elapsed={elapsed} onEnd={() => finish(true)} />
+      ) : (
+        <>
       <div className="gd-tools">
         {(["rake", "smooth", "stones"] as Tool[]).map((t) => (
           <button key={t} aria-pressed={tool === t} onClick={() => setTool(t)}>
@@ -125,6 +159,22 @@ export function GardenPanel({ state, onSave, onMeditate, onClose }: Props) {
       </p>
       {sitting && (
         <div className="gd-sit">
+          <span className="gd-sit-label">Sit for</span>
+          {SITS.map((x) => (
+            <button
+              key={x.min}
+              className="len"
+              onClick={() => {
+                setSitting(false);
+                bell();
+                setSit({ min: x.min, start: Date.now() });
+                onSitStart(x.min);
+              }}
+            >
+              {x.min} min <small>+{x.xp} XP</small>
+            </button>
+          ))}
+          <span className="gd-sit-label">or log one you did elsewhere:</span>
           {meditations.length ? (
             meditations.map((h) => (
               <button key={h.id} onClick={() => confirm(`Did you really do this today: ${h.name}? XP only counts for things you actually did.`) && onMeditate(h)}>
@@ -132,10 +182,33 @@ export function GardenPanel({ state, onSave, onMeditate, onClose }: Props) {
               </button>
             ))
           ) : (
-            <span className="note">Add a meditation habit (Habits tab, library → Mind) to log it here.</span>
+            <span className="note">none yet (the library's Mind group has some)</span>
           )}
         </div>
       )}
+        </>
+      )}
+    </div>
+  );
+}
+
+const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+/** The breathing guide: in for 4, hold for 4, out for 4. */
+function SitView({ min, elapsed, onEnd }: { min: number; elapsed: number; onEnd(): void }) {
+  const left = Math.max(0, min * 60 - elapsed);
+  const phase = elapsed % 12;
+  const cue = phase < 4 ? "Breathe in" : phase < 8 ? "Hold" : "Breathe out";
+  const credit = creditedSit(elapsed);
+  return (
+    <div className="gd-sitview">
+      <div className="breath" />
+      <div className="cue">{cue}</div>
+      <div className="clock">{fmtTime(left)}</div>
+      <p className="note">
+        A {min}-minute sit. Your character sits in the garden with you. When the bell rings it's logged for you.
+      </p>
+      <button onClick={onEnd}>{credit ? `End early (counts as ${credit.min} min)` : "End early (under 5 minutes isn't logged)"}</button>
     </div>
   );
 }

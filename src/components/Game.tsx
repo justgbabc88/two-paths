@@ -14,6 +14,7 @@ import { QuestsPane } from "./QuestsPane";
 import { ShopPanel } from "./ShopPanel";
 import { GardenPanel } from "./GardenPanel";
 import { CalendarPanel } from "./CalendarPanel";
+import { habitForSit } from "../game/meditation";
 import { flowFor, gp, money, type ShopItem } from "../game/economy";
 import type { Custom } from "../game/data";
 import type { Wanderer } from "../game/wanderers";
@@ -408,6 +409,30 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
                 onMeditate={(h) => {
                   setGardenOpen(false);
                   worldRef.current?.startAction(h);
+                }}
+                onSitStart={(min) => {
+                  worldRef.current?.setSitting(true);
+                  chat(`You settle into the garden for ${min} minutes. Breathe.`, "hint");
+                }}
+                onSitEnd={(min) => {
+                  worldRef.current?.setSitting(false);
+                  if (!min) {
+                    chat("You stand up before five minutes. That one isn't logged, but it still counts for something.", "sys");
+                    return;
+                  }
+                  // the timer is the proof: log the sit (adding the habit the first time)
+                  let st = stateRef.current;
+                  const found = habitForSit(st, min);
+                  let habit: Habit;
+                  if (found.isNew) {
+                    habit = { id: uid(), ...(found.habit as Omit<Habit, "id">) };
+                    st = { ...st, habits: [...st.habits, habit] };
+                    commit(st);
+                  } else habit = found.habit as Habit;
+                  setViewDay(dayKey(new Date()));
+                  viewDayRef.current = dayKey(new Date());
+                  chat(`The bell rings. ${min} minutes of stillness.`, "lvl");
+                  worldRef.current?.startAction(habit);
                 }}
                 onClose={() => setGardenOpen(false)}
               />

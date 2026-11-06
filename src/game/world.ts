@@ -299,7 +299,7 @@ export class World {
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false, pendingGarden: false, pendingArrive: null as null | (() => void) };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false, pendingGarden: false, pendingArrive: null as null | (() => void), sitting: false };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
@@ -1034,7 +1034,11 @@ export class World {
     const wx = P.px + 0.5,
       wz = P.py + 0.5;
     this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
-    this.animateAction(rig, P.action?.id ?? null, P.actionT);
+    this.animateAction(rig, P.action?.id ?? (P.sitting && !P.path.length ? "meditate" : null), P.action ? P.actionT : now / 1000);
+    if (P.sitting && !P.action && (P.fxT -= dt) <= 0) {
+      this.fx.push({ text: "✦", t: 0, dx: (Math.random() - 0.5) * 18 });
+      P.fxT = 2.2;
+    }
     if (this.sail) {
       rig.root.position.set(this.ferry.position.x, this.ferry.position.y + 0.08, this.ferry.position.z);
       rig.root.rotation.y = this.ferry.rotation.y;
@@ -1511,6 +1515,16 @@ export class World {
     } else if (v.toYou && k > 1.1) {
       v.dropT = 0.01;
       this.cb.chat(v.rally ? `The ball drops. Rally of ${v.rally}!` : "Missed! Kiki laughs and fetches the ball.", v.rally >= 5 ? "lvl" : "sys");
+    }
+  }
+
+  /** Sit (or stand up) in the zen garden while a timed meditation runs. */
+  setSitting(on: boolean) {
+    const P = this.P;
+    P.sitting = on;
+    if (on) {
+      P.path = [];
+      P.face = Math.PI; // facing into the garden
     }
   }
 
