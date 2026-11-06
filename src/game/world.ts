@@ -4,11 +4,12 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, COURT, FERRY, LOUNGERS, onIsland, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
+import { BEACH_TV, COLS, COURT, FERRY, LOUNGERS, onIsland, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
 import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
-import { CHIMNEYS, buildStation, hash, makeTropicalPlant, makeBall, makeFerry, makeGuardianStatue, makeLounger, makePalm, makeUmbrella, makeVolleyNet, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
+import { CHIMNEYS, buildStation, hash, makeBeachTV, makeTropicalPlant, makeBall, makeFerry, makeGuardianStatue, makeLounger, makePalm, makeUmbrella, makeVolleyNet, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { DEFAULT_GARDEN, drawGarden, leavesFor } from "./garden";
+import { drawSurfShow } from "./surftv";
 import type { Garden } from "./data";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
@@ -276,8 +277,33 @@ export class World {
   private courtNet!: THREE.Group;
   private kiki!: CharacterRig;
   private loungers: THREE.Group[] = [];
+  private tv!: THREE.Group;
+  private tvCanvas = document.createElement("canvas");
+  private tvTex!: THREE.CanvasTexture;
+  private tvFrame = 0;
   private lounging: number | null = null;
-  private vb: { active: boolean; toYou: boolean; t: number; dur: number; rally: number; best: number; hit: number; kikiJump: number; dropT: number } = { active: false, toYou: false, t: 0, dur: 1.15, rally: 0, best: 0, hit: 0, kikiJump: 0, dropT: 0 };
+  private vb: { active: boolean; toYou: boolean; t: number; dur: number; arc: number; rally: number; best: number; hit: number; kikiJump: number; dropT: number } = { active: false, toYou: false, t: 0, dur: 1.15, arc: 1.9, rally: 0, best: 0, hit: 0, kikiJump: 0, dropT: 0 };
+  /** How much of the ball's flight (as a fraction) you have to hit it: shrinks as the rally grows. */
+  private hitWindow() {
+    return Math.max(0.1, 0.24 - this.vb.rally * 0.01);
+  }
+  /** Kiki's return: a lob, a normal return, or a fast low spike (more spikes as the rally goes on). */
+  private kikiShot() {
+    const v = this.vb;
+    const base = Math.max(0.55, 1.1 - v.rally * 0.035);
+    const r = Math.random(),
+      spike = Math.min(0.45, 0.08 + v.rally * 0.03);
+    if (r < spike) {
+      v.dur = base * 0.68;
+      v.arc = 0.9;
+    } else if (r < spike + 0.25) {
+      v.dur = base * 1.3;
+      v.arc = 2.7;
+    } else {
+      v.dur = base * (0.9 + Math.random() * 0.2);
+      v.arc = 1.9;
+    }
+  }
   private garden!: THREE.Group;
   private gardenStones = new THREE.Group();
   private gardenCanvas = document.createElement("canvas");
@@ -470,6 +496,15 @@ export class World {
       um.position.set(l.x + 1.2, groundAt(l.x + 1.2, l.y + 0.3), l.y + 0.3);
       sc.add(um);
     });
+    this.tvCanvas.width = 256;
+    this.tvCanvas.height = 160;
+    this.tvTex = new THREE.CanvasTexture(this.tvCanvas);
+    this.tvTex.colorSpace = THREE.SRGBColorSpace;
+    this.tv = makeBeachTV(this.tvTex);
+    this.tv.position.set(BEACH_TV.x + 0.5, groundAt(BEACH_TV.x + 0.5, BEACH_TV.y + 0.5), BEACH_TV.y + 0.5);
+    this.tv.rotation.y = Math.PI; // screen faces the loungers to the north
+    this.tv.userData.tv = true;
+    sc.add(this.tv);
     this.ferry = makeFerry();
     this.ferry.userData.ferry = true;
     sc.add(this.ferry);
@@ -616,12 +651,13 @@ export class World {
     return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
   /** What is under a point in view coordinates: a station, or a ground tile. */
-  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; shop?: boolean; garden?: boolean; ferry?: boolean; court?: boolean; lounger?: number; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
+  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; shop?: boolean; garden?: boolean; tv?: boolean; ferry?: boolean; court?: boolean; lounger?: number; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
     this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
-    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.shop, this.garden, this.ferry, this.courtNet, this.ball, this.kiki.root, ...this.loungers, this.terrain], true)[0];
+    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.shop, this.garden, this.ferry, this.courtNet, this.ball, this.kiki.root, ...this.loungers, this.tv, this.terrain], true)[0];
     if (!hit) return {};
     let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark && !o.userData.shop && !o.userData.garden && !o.userData.ferry && !o.userData.court && o.userData.lounger === undefined) o = o.parent;
+    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark && !o.userData.shop && !o.userData.garden && !o.userData.ferry && !o.userData.court && !o.userData.tv && o.userData.lounger === undefined) o = o.parent;
+    if (o?.userData.tv) return { tv: true, point: hit.point };
     if (o?.userData.ferry) return { ferry: true, point: hit.point };
     if (o?.userData.court) return { court: true, point: hit.point };
     if (o && o.userData.lounger !== undefined) return { lounger: o.userData.lounger as number, point: hit.point };
@@ -859,7 +895,7 @@ export class World {
           y = base.y - f.t * 32;
         ctx.fillStyle = "#000";
         ctx.fillText(f.text, x + 1, y + 1);
-        ctx.fillStyle = f.text === "♥" ? "#ff8a9a" : f.text === "z" ? "#cfe0ff" : "#f5e7c3";
+        ctx.fillStyle = f.text === "♥" ? "#ff8a9a" : f.text === "z" ? "#cfe0ff" : f.text === "Perfect!" ? "#f5d020" : f.text === "Too early!" ? "#ff7b66" : f.text === "Good" ? "#8fd06a" : "#f5e7c3";
         ctx.fillText(f.text, x, y);
       });
       ctx.globalAlpha = 1;
@@ -924,6 +960,9 @@ export class World {
         } else if (p.court) {
           verb = "Play";
           name = " Volleyball";
+        } else if (p.tv) {
+          verb = "Watch";
+          name = " Beach TV";
         } else if (p.lounger !== undefined) {
           verb = "Relax-on";
           name = " Sun lounger";
@@ -1108,6 +1147,10 @@ export class World {
       pt.rig.legs.forEach((l, i) => (l.rotation.x = moving ? Math.sin(pt.t + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI : 0)) * 0.6 : 0));
       pt.rig.tail.rotation.z = Math.sin(now / (pt.kind === "dog" ? 120 : 600)) * (pt.kind === "dog" ? 0.6 : 0.3);
       pt.rig.head.rotation.y = moving ? 0 : Math.sin(now / 1500) * 0.4;
+    }
+    if ((this.tvFrame = (this.tvFrame + 1) % 2) === 0 && Math.hypot(this.cam.tx - BEACH_TV.x, this.cam.tz - BEACH_TV.y) < 30) {
+      drawSurfShow(this.tvCanvas.getContext("2d")!, this.tvCanvas.width, this.tvCanvas.height, now / 1000);
+      this.tvTex.needsUpdate = true;
     }
     this.spinners.forEach((o) => (o.rotation.y += dt * 1.2));
     this.sails.forEach((o) => (o.rotation.z -= dt * 0.8));
@@ -1452,21 +1495,32 @@ export class World {
   private startVolley() {
     this.lounging = null;
     this.P.face = Math.PI;
-    this.vb = { ...this.vb, active: true, toYou: true, t: -0.8, rally: 0, hit: 0, dropT: 0 };
+    this.vb = { ...this.vb, active: true, toYou: true, t: -0.8, rally: 0, hit: 0, dropT: 0, dur: 1.1, arc: 1.9 };
     this.cb.chat("Kiki tosses you a grin and serves. Click, tap or press space as the ball reaches you.", "hint");
     this.cb.volley({ rally: 0, best: this.vb.best, window: false });
   }
   /** Try to hit the ball (click, tap, space or the Hit button). */
   volleyHit() {
     const v = this.vb;
-    if (!v.active) return;
+    if (!v.active || v.dropT > 0 || !v.toYou || v.t < 0) return;
     v.hit = 0.35;
-    if (v.toYou && v.t >= v.dur * 0.62 && v.dropT === 0) {
+    const k = v.t / v.dur;
+    const open = 1 - this.hitWindow();
+    if (k >= open && k <= 1.04) {
+      const perfect = Math.abs(k - (open + 1.04) / 2) < 0.035;
+      this.fx.push({ text: perfect ? "Perfect!" : "Good", t: 0, dx: 0 });
       v.rally++;
       v.toYou = false;
       v.t = 0;
+      v.dur = perfect ? 0.85 : 1.0;
+      v.arc = perfect ? 1.4 : 1.9;
       if (v.rally > v.best) v.best = v.rally;
       this.cb.volley({ rally: v.rally, best: v.best, window: false });
+    } else if (k < open) {
+      // swung too early: a whiff, and the ball drops
+      this.fx.push({ text: "Too early!", t: 0, dx: 0 });
+      v.dropT = 0.01;
+      this.cb.chat(v.rally ? `You swing too early and the ball drops. Rally of ${v.rally}.` : "Too early! Wait for the ball to reach you.", "sys");
     }
   }
   stopVolley() {
@@ -1491,6 +1545,8 @@ export class World {
         v.toYou = true;
         v.t = -0.3;
         v.rally = 0;
+        v.dur = 1.1;
+        v.arc = 1.9;
         this.cb.volley({ rally: 0, best: v.best, window: false });
       }
       return;
@@ -1500,19 +1556,19 @@ export class World {
       to = this.courtPoint(v.toYou);
     const k = Math.max(0, Math.min(1.15, v.t / v.dur));
     const pos = from.clone().lerp(to, Math.min(1, k));
-    pos.y += Math.sin(Math.min(1, k) * Math.PI) * 1.9;
+    pos.y += Math.sin(Math.min(1, k) * Math.PI) * v.arc;
     if (k > 1) pos.y -= (k - 1) * 6;
     this.ball.position.copy(pos);
     this.ball.rotation.x += dt * 8;
-    const window = v.toYou && v.t >= v.dur * 0.62 && k <= 1.1;
+    const window = v.toYou && k >= 1 - this.hitWindow() && k <= 1.04;
     this.cb.volley({ rally: v.rally, best: v.best, window });
     if (!v.toYou && k >= 1) {
       // Kiki always gets it back
       v.kikiJump = 0.35;
       v.toYou = true;
       v.t = 0;
-      v.dur = Math.max(0.75, 1.15 - v.rally * 0.02); // the rally speeds up
-    } else if (v.toYou && k > 1.1) {
+      this.kikiShot(); // lob, return or spike; faster as the rally grows
+    } else if (v.toYou && k > 1.06) {
       v.dropT = 0.01;
       this.cb.chat(v.rally ? `The ball drops. Rally of ${v.rally}!` : "Missed! Kiki laughs and fetches the ball.", v.rally >= 5 ? "lvl" : "sys");
     }
@@ -1711,6 +1767,11 @@ export class World {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
       this.goToFork();
       return;
+    }
+    if (p.tv) {
+      // settle onto the middle lounger and watch
+      p.lounger = 1;
+      this.cb.chat("Penguins Surfing is on. Again. It's always on. You settle in.", "hint");
     }
     if (p.ferry || p.court || p.lounger !== undefined) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });

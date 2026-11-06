@@ -1263,3 +1263,20 @@ export function makeTropicalPlant(seed: number): THREE.Group {
   g.rotation.y = seed;
   return g;
 }
+
+/** Palm-roofed TV stand for the beach; the screen texture is supplied by the world. */
+export function makeBeachTV(screen: THREE.Texture): THREE.Group {
+  const g = new THREE.Group();
+  for (const x of [-0.55, 0.55]) g.add(cyl(0.05, 0.06, 1.7, 5, "#8a6a44", x, 0.85, -0.25));
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(1.0, 0.45, 6), mat("#b89a4a"));
+  roof.position.set(0, 1.85, -0.1);
+  g.add(roof);
+  g.add(box(1.0, 0.5, 0.45, "#7a5533", 0, 0.25, -0.15)); // cabinet
+  g.add(box(1.0, 0.68, 0.38, "#2a2a2e", 0, 0.86, -0.12)); // set
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.54), new THREE.MeshBasicMaterial({ map: screen }));
+  scr.position.set(0, 0.87, 0.075);
+  g.add(scr);
+  g.add(cyl(0.012, 0.012, 0.35, 4, "#9aa0a6", 0.25, 1.33, -0.12)).children.at(-1)!.rotation.z = -0.5;
+  g.add(cyl(0.012, 0.012, 0.35, 4, "#9aa0a6", -0.25, 1.33, -0.12)).children.at(-1)!.rotation.z = 0.5;
+  return g;
+}

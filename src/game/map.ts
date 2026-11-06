@@ -175,6 +175,9 @@ export const FERRY = { mainland: { x: 58, y: 54 }, island: { x: 60, y: 67 } };
 export const COURT = { x: 51, y: 70, w: 6, h: 5, you: { x: 54, y: 74 }, them: { x: 54, y: 70 } };
 /** Sun loungers on the beach (the tile you lie on). */
 export const LOUNGERS = [{ x: 52, y: 77 }, { x: 54, y: 77 }, { x: 56, y: 77 }];
+/** A palm-roofed beach TV in front of the loungers. */
+export const BEACH_TV = { x: 54, y: 79 };
+blocked[BEACH_TV.y][BEACH_TV.x] = true;
 export const onIsland = (_x: number, y: number) => y >= 56;
 
 /** The zen garden: a walled sand garden you rake and tend, and a place to sit. */
