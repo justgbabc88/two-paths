@@ -4,7 +4,7 @@ import { BANK_RATE, ITEM, ITEMS, flowFor, gp, money, type ShopItem } from "../ga
 import { todayLook } from "../game/appearance";
 import type { Computed } from "../game/logic";
 import { CharacterPreview } from "./CharacterPreview";
-import { FREEZE_PRICE, MAX_FREEZES, RARITY_COLOR, ownedIds, streakInfo } from "../game/rewards";
+import { FREEZE_PRICE, MAX_FREEZES, RARITY_COLOR, ownedIds, requirementText, streakInfo, unmetRequirement } from "../game/rewards";
 
 interface Props {
   state: GameState;
@@ -25,7 +25,10 @@ const SLOTS: { slot: ShopItem["slot"]; label: string; key: keyof Custom }[] = [
   { slot: "cape", label: "Cape", key: "cape" },
   { slot: "accessory", label: "Carry", key: "accessory" },
   { slot: "pet", label: "Companion", key: "pet" },
+  { slot: "aura", label: "Aura", key: "aura" },
 ];
+const PET_SWATCH: Record<string, string> = { dog: "#9a6a3a", cat: "#5a5a62", fox: "#d0702a", penguin: "#1c2230", robot: "#e6edf4", dragon: "#5a3a9a" };
+const AURA_SWATCH: Record<string, string> = { petals: "#ff9ac0", snow: "#e8f4ff", embers: "#ff7a1a", lightning: "#7ac8ff", midas: "#f0c040" };
 
 // The general store: shop, wardrobe and bank in one panel.
 export function ShopPanel({ state, c: computed, start, onBuy, onBuyFreeze, onCustom, onWithdraw, onClose }: Props) {
@@ -42,7 +45,7 @@ export function ShopPanel({ state, c: computed, start, onBuy, onBuyFreeze, onCus
   const flows = state.habits.map((h) => ({ h, f: flowFor(h) }));
 
   // what the preview shows: your current look, plus whatever you're trying on
-  const slotKey = { top: "top", hat: "hat", cape: "cape", accessory: "accessory", pet: "pet" } as const;
+  const slotKey = { top: "top", hat: "hat", cape: "cape", accessory: "accessory", pet: "pet", aura: "aura" } as const;
   const trialItem = trial ? ITEM[trial] : null;
   const previewState: GameState = trialItem
     ? { ...state, owned: [...(state.owned ?? []), trialItem.id], custom: { ...c, [slotKey[trialItem.slot]]: trialItem.id } }
@@ -133,25 +136,32 @@ export function ShopPanel({ state, c: computed, start, onBuy, onBuyFreeze, onCus
             <div key={slot}>
               <h4>{label}</h4>
               <div className="sh-grid">
-                {ITEMS.filter((i) => i.slot === slot && !i.loot && !i.secret).map((it) => {
+                {ITEMS.filter((i) => i.slot === slot && !i.loot && !i.secret)
+                  .sort((a, b) => a.price - b.price)
+                  .map((it) => {
                   const has = owned.has(it.id);
                   const worn = c[key] === it.id;
+                  const why = has ? null : unmetRequirement(it, state, computed);
+                  const req = requirementText(it);
                   return (
                     <div
                       key={it.id}
-                      className={"sh-item" + (worn ? " worn" : "") + (trial === it.id ? " trying" : "")}
-                      title={it.blurb}
+                      className={"sh-item" + (worn ? " worn" : "") + (trial === it.id ? " trying" : "") + (it.price >= 10000 ? " rare" : "") + (why ? " gated" : "")}
+                      title={it.blurb + (req ? ` (${req})` : "")}
                       tabIndex={0}
                       onMouseEnter={() => tryOn(it.id)}
                       onFocus={() => tryOn(it.id)}
                       onClick={() => tryOn(it.id)}
                     >
-                      <span className="sw" style={{ background: it.color ?? (it.pet === "dog" ? "#9a6a3a" : it.pet === "cat" ? "#5a5a62" : "#6b4a2a") }} />
-                      <span className="nm">{it.name}</span>
+                      <span className={"sw" + (it.finish === "glow" || it.aura || it.hat === "halo" || it.hat === "flames" ? " shine" : "")} style={{ background: it.color ?? (it.pet ? PET_SWATCH[it.pet] : it.aura ? AURA_SWATCH[it.aura] : "#6b4a2a") }} />
+                      <span className="nm">
+                        {it.name}
+                        {req && !has && <small className={why ? "req" : "req ok"}>{why ? "🔒 " + why.replace("Needs ", "") : "✓ " + req.replace("Requires ", "")}</small>}
+                      </span>
                       {has ? (
                         <button onClick={() => set({ [key]: worn ? "" : it.id } as Custom)}>{worn ? "Take off" : slot === "pet" ? "Bring along" : "Wear"}</button>
                       ) : (
-                        <button className="buy" disabled={m.wallet < it.price} onClick={() => confirm(`Buy ${it.name} for ${gp(it.price)}?`) && onBuy(it)}>
+                        <button className="buy" disabled={m.wallet < it.price || !!why} onClick={() => confirm(`Buy ${it.name} for ${gp(it.price)}?`) && onBuy(it)}>
                           {gp(it.price)}
                         </button>
                       )}
@@ -270,8 +280,8 @@ export function ShopPanel({ state, c: computed, start, onBuy, onBuyFreeze, onCus
       </div>
       <aside className="sh-preview">
         <CharacterPreview appearance={preview} label={trialItem ? `Trying on: ${trialItem.name}` : "You"} />
-        {trialItem && !trialItem.loot && !owned.has(trialItem.id) && (
-          <button className="buy" disabled={m.wallet < trialItem.price} onClick={() => confirm(`Buy ${trialItem.name} for ${gp(trialItem.price)}?`) && onBuy(trialItem)}>
+        {trialItem && !trialItem.loot && !trialItem.secret && !owned.has(trialItem.id) && (
+          <button className="buy" disabled={m.wallet < trialItem.price || !!unmetRequirement(trialItem, state, computed)} onClick={() => confirm(`Buy ${trialItem.name} for ${gp(trialItem.price)}?`) && onBuy(trialItem)}>
             Buy for {gp(trialItem.price)}
           </button>
         )}

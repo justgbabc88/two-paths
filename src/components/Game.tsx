@@ -19,7 +19,7 @@ import { ITEM, flowFor, gp, money, type ShopItem } from "../game/economy";
 import type { Custom } from "../game/data";
 import type { Wanderer } from "../game/wanderers";
 import { StatsPane } from "./StatsPane";
-import { FREEZE_PRICE, MAX_FREEZES, RARITY_COLOR, STREAK_MILESTONES, freezesNeeded, lootLog, milestoneBounty, newMilestones, streakBounty, streakInfo } from "../game/rewards";
+import { unmetRequirement, FREEZE_PRICE, MAX_FREEZES, RARITY_COLOR, STREAK_MILESTONES, freezesNeeded, lootLog, milestoneBounty, newMilestones, streakBounty, streakInfo } from "../game/rewards";
 import { isMuted, setMuted, sfx } from "../game/sfx";
 import { FOCUS, focusAt, habitForSession, loadSession, saveSession, type FocusKind, type Session } from "../game/sessions";
 import { FocusPicker, FocusTimer } from "./FocusPanel";
@@ -416,9 +416,17 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const purse = useMemo(() => money(state), [state]);
   const buyItem = (it: ShopItem) => {
     const st = stateRef.current;
-    if (money(st).wallet < it.price || (st.owned ?? []).includes(it.id)) return;
-    const slotKey = ({ top: "top", hat: "hat", cape: "cape", accessory: "accessory", pet: "pet" } as const)[it.slot];
-    commit({ ...st, owned: [...(st.owned ?? []), it.id], custom: { ...st.custom, [slotKey]: it.id } });
+    if (money(st).wallet < it.price || (st.owned ?? []).includes(it.id) || it.loot || it.secret) return;
+    const why = unmetRequirement(it, st, compute(st));
+    if (why) {
+      chat(`${it.name}: ${why.toLowerCase()}.`, "bad");
+      return;
+    }
+    commit({ ...st, owned: [...(st.owned ?? []), it.id], paid: { ...st.paid, [it.id]: it.price }, custom: { ...st.custom, [it.slot]: it.id } });
+    if (it.price >= 10000) {
+      banner({ kicker: "Purchased", title: it.name, sub: it.blurb, color: "#e0c040", big: true });
+      sfx.levelUp();
+    } else sfx.coin();
     chat(`You buy the ${it.name.toLowerCase()} for ${gp(it.price)}${it.slot === "pet" ? ". It decides to follow you home" : " and put it on"}.`, "lvl");
   };
   const setCustom = (c: Custom) => commit({ ...stateRef.current, custom: c });

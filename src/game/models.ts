@@ -102,7 +102,13 @@ export interface Look {
   hair: string;
   boots?: string;
   hairStyle?: HairStyle;
-  hat?: { kind: "brim" | "hood" | "cap" | "scarf" | "crown"; color: string };
+  hat?: { kind: HatKind; color: string };
+  /** Special tunic finishes from the store. */
+  finish?: "metal" | "glow" | "ghost";
+  /** Special cape styles from the store. */
+  capeStyle?: "wings" | "stars" | "phoenix" | "rainbow";
+  /** Extra gear from the store. */
+  gear?: GearKind[];
   beard?: string;
   robe?: string; // long robe instead of trousers
   apron?: string;
@@ -124,6 +130,9 @@ export interface Look {
   glasses?: "round" | "square";
   freckles?: boolean;
 }
+export type HatKind = "brim" | "hood" | "cap" | "scarf" | "crown" | "wizard" | "tophat" | "horns" | "antlers" | "astro" | "halo" | "flames" | "tricorn";
+const FANCY_HATS: HatKind[] = ["wizard", "tophat", "horns", "antlers", "astro", "halo", "flames", "tricorn"];
+export type GearKind = "jetpack" | "orb" | "sword" | "lute";
 export type HairStyle = "short" | "long" | "bun" | "bald" | "curly" | "ponytail" | "buzz" | "spiky";
 export type FacialHair = "none" | "stubble" | "moustache" | "goatee" | "beard";
 export const PLAYER_LOOK: Look = { skin: "#c99a72", top: "#3c5a8c", bottom: "#3a3328", hair: "#4a2e18", belt: "#3a2614" };
@@ -445,11 +454,14 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
     hem.scale.set(W, 1, 0.75);
     body.add(hem);
   }
-  if (look.cape) {
+  if (look.cape && look.capeStyle === "wings") body.add(wings(look.cape));
+  else if (look.cape) {
     const cape = part(new THREE.CylinderGeometry(0.2 * W, 0.3 * W, 0.72, 8, 1, true, Math.PI * 0.6, Math.PI * 0.8), look.cape, 0, 0.56, -0.02);
     cape.scale.set(1, 1, 0.75);
+    if (look.capeStyle) cape.material = capeMaterial(look.capeStyle as "stars" | "phoenix" | "rainbow", look.cape);
     body.add(cape);
   }
+  for (const gk of look.gear ?? []) body.add(gear(gk));
   // facial hair: `beard` (a colour) is the full beard; `facialHair` picks other styles
   const fh = look.facialHair ?? (look.beard ? "beard" : "none");
   const fhColor = look.beard ?? look.hair;
@@ -479,6 +491,8 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
       head.add(part(new THREE.CylinderGeometry(0.11, 0.14, 0.14, 6), c, 0, 0.18, 0));
     } else if (look.hat.kind === "hood") {
       head.add(part(new THREE.SphereGeometry(0.176, 8, 4, Math.PI * 0.85, Math.PI * 1.3) /* opening faces +z (the face) */.scale(1, 1.1, 1.05), c, 0, 0.01, -0.01));
+    } else if (FANCY_HATS.includes(look.hat.kind)) {
+      head.add(fancyHat(look.hat.kind, c));
     } else if (look.hat.kind === "crown") {
       head.add(crownMesh(c, 1));
       head.children[head.children.length - 1].position.set(0, 0.11, -0.01);
@@ -585,6 +599,15 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
     armL.add(part(new THREE.SphereGeometry(0.045, 8, 6), "#8a6a40", 0, 0.45, 0.05));
   }
 
+  if (look.finish) {
+    // re-skin the tunic (torso, shoulders, sleeves) with the special finish
+    const fm = finishMaterial(look.finish, look.top);
+    const tunic = sm(look.top);
+    body.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.material === tunic) m.material = fm;
+    });
+  }
   // blob shadow
   const sh = new THREE.Mesh(new THREE.CircleGeometry(0.26, 16), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.28, depthWrite: false }));
   sh.rotation.x = -Math.PI / 2;
@@ -1327,7 +1350,11 @@ export function makeShop(): THREE.Group {
 }
 
 export interface PetRig { root: THREE.Group; legs: THREE.Object3D[]; tail: THREE.Object3D; head: THREE.Object3D }
-export function makePet(kind: "dog" | "cat"): PetRig {
+export function makePet(kind: "dog" | "cat" | "fox" | "penguin" | "robot" | "dragon"): PetRig {
+  if (kind === "fox") return makeFox();
+  if (kind === "penguin") return makePenguinPet();
+  if (kind === "robot") return makeRobotPet();
+  if (kind === "dragon") return makeDragon();
   const root = new THREE.Group();
   const fur = kind === "dog" ? "#9a6a3a" : "#5a5a62";
   const fur2 = kind === "dog" ? "#e8d8b8" : "#d9d4ca";
@@ -1603,4 +1630,323 @@ export function makePenguin(scale = 1, king = false): THREE.Group {
   }
   g.scale.setScalar(scale);
   return g;
+}
+
+// ---------------- store specials: finishes, capes, hats, gear ----------------
+function finishMaterial(f: "metal" | "glow" | "ghost", color: string): THREE.Material {
+  if (f === "metal") return new THREE.MeshPhongMaterial({ color, shininess: 90, specular: shade(color, 0.35), flatShading: true, emissive: shade(color, -0.25), emissiveIntensity: 0.35 });
+  if (f === "glow") return new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.7, flatShading: true });
+  return new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.45, emissive: "#6a8aaa", emissiveIntensity: 0.4, flatShading: true, depthWrite: false });
+}
+const capeTex = new Map<string, THREE.Texture>();
+function capeMaterial(style: "stars" | "phoenix" | "rainbow", color: string): THREE.Material {
+  let tex = capeTex.get(style);
+  if (!tex) {
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 128;
+    const x = c.getContext("2d")!;
+    if (style === "rainbow") {
+      ["#e04a4a", "#f0902a", "#f0d040", "#5ac05a", "#4a8ae0", "#7a4ac0"].forEach((col, i) => {
+        x.fillStyle = col;
+        x.fillRect(0, (i * 128) / 6, 64, 128 / 6 + 1);
+      });
+    } else if (style === "phoenix") {
+      const g = x.createLinearGradient(0, 0, 0, 128);
+      g.addColorStop(0, "#ffe070");
+      g.addColorStop(0.45, "#ff7a1a");
+      g.addColorStop(1, "#a01a10");
+      x.fillStyle = g;
+      x.fillRect(0, 0, 64, 128);
+      x.fillStyle = "rgba(255,240,160,.6)";
+      for (let i = 0; i < 9; i++) {
+        x.beginPath();
+        x.moveTo(i * 8, 128);
+        x.quadraticCurveTo(i * 8 + 4, 80 + (i % 3) * 10, i * 8 + 8, 128);
+        x.fill();
+      }
+    } else {
+      x.fillStyle = "#0e1230";
+      x.fillRect(0, 0, 64, 128);
+      for (let i = 0; i < 60; i++) {
+        x.fillStyle = i % 5 ? "#dfe8ff" : "#ffe08a";
+        const r = i % 7 ? 0.8 : 1.6;
+        x.beginPath();
+        x.arc(hash(i, 1) * 64, hash(i, 2) * 128, r, 0, Math.PI * 2);
+        x.fill();
+      }
+    }
+    tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    capeTex.set(style, tex);
+  }
+  void color;
+  return new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, emissive: style === "rainbow" ? "#000" : "#fff", emissiveMap: style === "rainbow" ? null : tex, emissiveIntensity: style === "phoenix" ? 0.6 : 0.5 });
+}
+/** Dragon-style wings on the back that slowly beat (named for the world to animate). */
+function wings(color: string): THREE.Group {
+  const g = new THREE.Group();
+  g.position.set(0, 0.82, -0.12);
+  for (const side of [-1, 1]) {
+    const w = new THREE.Group();
+    w.name = side < 0 ? "fx:wingL" : "fx:wingR";
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    shape.lineTo(0.55, 0.32);
+    shape.lineTo(0.62, 0.05);
+    shape.quadraticCurveTo(0.5, -0.05, 0.45, -0.22);
+    shape.quadraticCurveTo(0.32, -0.12, 0.25, -0.3);
+    shape.quadraticCurveTo(0.15, -0.15, 0, -0.18);
+    const geo = new THREE.ShapeGeometry(shape);
+    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide, emissive: shade(color, -0.25), emissiveIntensity: 0.3 }));
+    m.scale.x = side;
+    w.add(m);
+    // the arm bone along the top edge
+    const bone = part(new THREE.CylinderGeometry(0.012, 0.018, 0.64, 5), shade(color, -0.2), side * 0.3, 0.17, 0.005);
+    bone.rotation.z = -side * 1.02;
+    w.add(bone);
+    w.rotation.y = side * 0.5;
+    g.add(w);
+  }
+  return g;
+}
+function fancyHat(kind: HatKind, c: string): THREE.Group {
+  const g = new THREE.Group();
+  const add = (geo: THREE.BufferGeometry, col: string, x: number, y: number, z: number) => {
+    const m = part(geo, col, x, y, z);
+    g.add(m);
+    return m;
+  };
+  if (kind === "wizard") {
+    add(new THREE.CylinderGeometry(0.24, 0.24, 0.02, 12), c, 0, 0.1, 0);
+    const cone = add(new THREE.ConeGeometry(0.15, 0.48, 10), c, 0, 0.34, -0.02);
+    cone.rotation.x = -0.18;
+    for (let i = 0; i < 6; i++) {
+      const st = new THREE.Mesh(new THREE.OctahedronGeometry(0.018), new THREE.MeshBasicMaterial({ color: "#ffe08a" }));
+      st.position.set(Math.sin(i * 2.1) * (0.12 - i * 0.012), 0.16 + i * 0.05, Math.cos(i * 2.1) * (0.12 - i * 0.012) - 0.01);
+      g.add(st);
+    }
+  } else if (kind === "tophat") {
+    add(new THREE.CylinderGeometry(0.21, 0.21, 0.018, 12), c, 0, 0.1, 0);
+    add(new THREE.CylinderGeometry(0.115, 0.12, 0.26, 12), c, 0, 0.24, 0);
+    add(new THREE.CylinderGeometry(0.122, 0.122, 0.04, 12), "#8a1a1a", 0, 0.14, 0);
+  } else if (kind === "horns") {
+    add(new THREE.SphereGeometry(0.155, 10, 5, 0, Math.PI * 2, 0, Math.PI * 0.5), c, 0, 0.03, 0);
+    add(new THREE.TorusGeometry(0.15, 0.015, 4, 14).rotateX(Math.PI / 2), "#b08a3a", 0, 0.04, 0);
+    for (const x of [-1, 1]) {
+      const h = add(new THREE.ConeGeometry(0.035, 0.22, 6), "#efe4c8", x * 0.17, 0.12, 0);
+      h.rotation.z = -x * 1.0;
+    }
+  } else if (kind === "antlers") {
+    for (const x of [-1, 1]) {
+      const base = add(new THREE.CylinderGeometry(0.012, 0.018, 0.2, 5), "#8a6a44", x * 0.08, 0.2, -0.01);
+      base.rotation.z = -x * 0.4;
+      for (let i = 0; i < 3; i++) {
+        const t = add(new THREE.CylinderGeometry(0.008, 0.012, 0.11, 4), "#8a6a44", x * (0.12 + i * 0.03), 0.24 + i * 0.05, -0.01 + (i - 1) * 0.03);
+        t.rotation.z = -x * (0.9 - i * 0.3);
+      }
+    }
+  } else if (kind === "astro") {
+    const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.24, 14, 10), new THREE.MeshLambertMaterial({ color: "#cfeaff", transparent: true, opacity: 0.25, emissive: "#3a6a8a", emissiveIntensity: 0.3, depthWrite: false }));
+    bubble.position.set(0, 0, 0.01);
+    g.add(bubble);
+    add(new THREE.TorusGeometry(0.17, 0.03, 6, 14).rotateX(Math.PI / 2), "#e8ecf2", 0, -0.17, 0);
+    add(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 4), "#9aa0a6", 0.12, 0.24, -0.06);
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 4), new THREE.MeshBasicMaterial({ color: "#ff4a3a" })).translateX(0.12).translateY(0.31).translateZ(-0.06));
+  } else if (kind === "halo") {
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.014, 6, 24).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: "#fff2a8" }));
+    halo.position.y = 0.24;
+    halo.name = "fx:halo";
+    g.add(halo);
+  } else if (kind === "flames") {
+    add(new THREE.TorusGeometry(0.135, 0.02, 4, 12).rotateX(Math.PI / 2), "#3a2a2a", 0, 0.08, 0);
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      const f = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.16, 5), new THREE.MeshBasicMaterial({ color: i % 2 ? "#ffd04a" : "#ff6a1a" }));
+      f.position.set(Math.sin(a) * 0.13, 0.17, Math.cos(a) * 0.13);
+      f.name = "fx:flame";
+      f.userData.phase = i;
+      g.add(f);
+    }
+  } else if (kind === "tricorn") {
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + Math.PI;
+      const flap = add(new THREE.BoxGeometry(0.26, 0.1, 0.03), c, Math.sin(a) * 0.13, 0.13, Math.cos(a) * 0.13);
+      flap.rotation.y = a;
+      flap.rotation.x = -0.35;
+    }
+    add(new THREE.CylinderGeometry(0.13, 0.15, 0.1, 9), c, 0, 0.13, 0);
+    add(new THREE.SphereGeometry(0.025, 6, 4), "#f4f0e6", 0, 0.16, 0.16);
+  }
+  return g;
+}
+function gear(kind: GearKind): THREE.Group {
+  const g = new THREE.Group();
+  if (kind === "jetpack") {
+    for (const x of [-0.07, 0.07]) {
+      g.add(part(new THREE.CapsuleGeometry(0.055, 0.2, 3, 8), "#a8b0bc", x, 0.72, -0.2));
+      g.add(part(new THREE.CylinderGeometry(0.04, 0.05, 0.05, 8), "#3a3a3a", x, 0.56, -0.2));
+      const fl = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.16, 6).rotateX(Math.PI), new THREE.MeshBasicMaterial({ color: "#5ad0ff", transparent: true, opacity: 0.85 }));
+      fl.position.set(x, 0.47, -0.2);
+      fl.name = "fx:thrust";
+      g.add(fl);
+    }
+    g.add(part(new THREE.BoxGeometry(0.2, 0.18, 0.06), "#c84a2a", 0, 0.75, -0.16));
+  } else if (kind === "orb") {
+    const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.06, 1), new THREE.MeshBasicMaterial({ color: "#b88aff" }));
+    orb.name = "fx:orb";
+    orb.position.set(0.35, 1.25, 0);
+    g.add(orb);
+  } else if (kind === "sword") {
+    const s = new THREE.Group();
+    s.add(part(new THREE.BoxGeometry(0.05, 0.7, 0.012), "#dfe6ee", 0, 0.2, 0));
+    s.add(part(new THREE.BoxGeometry(0.18, 0.03, 0.04), "#d4a52a", 0, -0.16, 0));
+    s.add(part(new THREE.CylinderGeometry(0.018, 0.018, 0.14, 5), "#5a2a1a", 0, -0.25, 0));
+    const fire = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.66, 0.03), new THREE.MeshBasicMaterial({ color: "#ff7a1a", transparent: true, opacity: 0.45 }));
+    fire.position.y = 0.22;
+    fire.name = "fx:blade";
+    s.add(fire);
+    s.position.set(0.05, 0.72, -0.17);
+    s.rotation.z = 0.6;
+    g.add(s);
+  } else if (kind === "lute") {
+    const l = new THREE.Group();
+    l.add(part(new THREE.SphereGeometry(0.12, 10, 6).scale(1, 1.25, 0.45), "#a8642a", 0, 0, 0));
+    l.add(part(new THREE.BoxGeometry(0.04, 0.32, 0.03), "#6b4626", 0, 0.26, 0));
+    l.add(part(new THREE.BoxGeometry(0.07, 0.07, 0.03), "#6b4626", 0, 0.44, -0.02));
+    l.add(part(new THREE.CylinderGeometry(0.03, 0.03, 0.01, 10).rotateX(Math.PI / 2), "#2a1a10", 0, 0.03, 0.055));
+    l.position.set(-0.04, 0.72, -0.17);
+    l.rotation.z = -0.7;
+    g.add(l);
+  }
+  return g;
+}
+
+// ---------------- store pets ----------------
+const petShadow = (r: number) => {
+  const sh = new THREE.Mesh(new THREE.CircleGeometry(r, 12), new THREE.MeshBasicMaterial({ color: "#000", transparent: true, opacity: 0.25, depthWrite: false }));
+  sh.rotation.x = -Math.PI / 2;
+  sh.position.y = 0.02;
+  sh.name = "shadow";
+  return sh;
+};
+function fourLegs(root: THREE.Group, col: string, s: number, h: number) {
+  const legs: THREE.Object3D[] = [];
+  for (const [x, z] of [[-0.06, 0.12], [0.06, 0.12], [-0.06, -0.12], [0.06, -0.12]]) {
+    const leg = new THREE.Group();
+    leg.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.026 * s, h * s, 3, 6), sm(col))).children.at(-1)!.position.y = -0.08 * s;
+    leg.position.set(x * s, 0.19 * s, z * s);
+    root.add(leg);
+    legs.push(leg);
+  }
+  return legs;
+}
+function makeFox(): PetRig {
+  const root = new THREE.Group();
+  const fur = "#d0702a",
+    white = "#f2ece0";
+  const s = 0.9;
+  root.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.26, 4, 8).rotateX(Math.PI / 2), sm(fur))).children.at(-1)!.position.set(0, 0.23, 0);
+  root.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6).scale(1, 0.8, 1.2), sm(white))).children.at(-1)!.position.set(0, 0.2, 0.1);
+  const head = new THREE.Group();
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), sm(fur)));
+  head.add(new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.12, 6).rotateX(Math.PI / 2), sm(white))).children.at(-1)!.position.set(0, -0.025, 0.1);
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 4), sm("#1a1410"))).children.at(-1)!.position.set(0, -0.02, 0.165);
+  for (const x of [-0.05, 0.05]) {
+    head.add(new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.09, 4), sm(fur))).children.at(-1)!.position.set(x, 0.1, -0.01);
+    head.add(new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.04, 4), sm("#2a1a10"))).children.at(-1)!.position.set(x, 0.14, -0.01);
+    head.add(new THREE.Mesh(new THREE.SphereGeometry(0.013, 6, 4), sm("#1a1410"))).children.at(-1)!.position.set(x * 0.8, 0.02, 0.075);
+  }
+  head.position.set(0, 0.34, 0.2);
+  root.add(head);
+  const legs = fourLegs(root, "#3a2214", s, 0.12);
+  const tail = new THREE.Group();
+  tail.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.2, 4, 8), sm(fur))).children.at(-1)!.position.y = 0.13;
+  tail.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), sm(white))).children.at(-1)!.position.y = 0.27;
+  tail.position.set(0, 0.26, -0.2);
+  tail.rotation.x = -1.0;
+  root.add(tail);
+  root.add(petShadow(0.16));
+  return { root, legs, tail, head };
+}
+function makePenguinPet(): PetRig {
+  const root = new THREE.Group();
+  const p = makePenguin(0.42);
+  root.add(p);
+  const legs = p.children.slice(1); // the feet
+  const head = new THREE.Group();
+  root.add(head);
+  const tail = new THREE.Group();
+  root.add(tail);
+  root.add(petShadow(0.14));
+  return { root, legs, tail, head };
+}
+function makeRobotPet(): PetRig {
+  const root = new THREE.Group();
+  const W = "#e6edf4",
+    ST = "#7d8a9c";
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.3), sm(W))).children.at(-1)!.position.set(0, 0.24, 0);
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.03, 0.31), sm("#e0782a"))).children.at(-1)!.position.set(0, 0.18, 0);
+  const head = new THREE.Group();
+  head.add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.14), sm(W)));
+  head.add(new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.025, 0.01), new THREE.MeshBasicMaterial({ color: "#5ad0f0" }))).children.at(-1)!.position.set(0, 0.01, 0.072);
+  head.position.set(0, 0.36, 0.15);
+  root.add(head);
+  const legs: THREE.Object3D[] = [];
+  for (const [x, z] of [[-0.08, 0.1], [0.08, 0.1], [-0.08, -0.1], [0.08, -0.1]]) {
+    const leg = new THREE.Group();
+    leg.add(new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.16, 0.05), sm(ST))).children.at(-1)!.position.y = -0.08;
+    leg.position.set(x, 0.18, z);
+    root.add(leg);
+    legs.push(leg);
+  }
+  const tail = new THREE.Group();
+  tail.add(new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.16, 4), sm(ST))).children.at(-1)!.position.y = 0.08;
+  tail.add(new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 4), new THREE.MeshBasicMaterial({ color: "#ff9a4a" }))).children.at(-1)!.position.y = 0.17;
+  tail.position.set(0, 0.3, -0.12);
+  root.add(tail);
+  root.add(petShadow(0.15));
+  return { root, legs, tail, head };
+}
+/** A small flying dragon. Its `legs` are the wings (the world flaps them). */
+function makeDragon(): PetRig {
+  const root = new THREE.Group();
+  const scale = "#5a3a9a",
+    belly = "#e8c070";
+  const body = new THREE.Group();
+  root.add(body);
+  body.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.2, 4, 8).rotateX(Math.PI / 2), sm(scale))).children.at(-1)!.position.set(0, 0.0, 0);
+  body.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.16, 4, 8).rotateX(Math.PI / 2), sm(belly))).children.at(-1)!.position.set(0, -0.03, 0.02);
+  const head = new THREE.Group();
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6).scale(1, 0.9, 1.3), sm(scale)));
+  head.add(new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.08), sm(scale))).children.at(-1)!.position.set(0, -0.02, 0.09);
+  for (const x of [-0.04, 0.04]) {
+    head.add(new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.08, 4), sm(belly))).children.at(-1)!.position.set(x, 0.07, -0.04);
+    head.add(new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 4), new THREE.MeshBasicMaterial({ color: "#ffd04a" }))).children.at(-1)!.position.set(x, 0.02, 0.07);
+  }
+  head.position.set(0, 0.08, 0.2);
+  root.add(head);
+  const legs: THREE.Object3D[] = [];
+  for (const side of [-1, 1]) {
+    const w = new THREE.Group();
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    shape.lineTo(0.3, 0.12);
+    shape.lineTo(0.26, -0.04);
+    shape.lineTo(0.14, -0.02);
+    shape.lineTo(0.08, -0.1);
+    shape.lineTo(0, -0.06);
+    const m = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: "#7a5ac0", side: THREE.DoubleSide }));
+    m.scale.x = side;
+    w.add(m);
+    w.position.set(side * 0.06, 0.05, 0);
+    root.add(w);
+    legs.push(w);
+  }
+  const tail = new THREE.Group();
+  tail.add(new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.26, 5).rotateX(-Math.PI / 2), sm(scale))).children.at(-1)!.position.z = -0.13;
+  tail.position.set(0, 0, -0.14);
+  root.add(tail);
+  root.add(petShadow(0.12));
+  return { root, legs, tail, head };
 }

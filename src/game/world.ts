@@ -10,6 +10,7 @@ import { CHIMNEYS, buildStation, hash, makeBeachTV, makeTropicalPlant, makeBall,
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { DEFAULT_GARDEN, drawGarden, leavesFor } from "./garden";
 import { drawKingSignal, drawSurfShow } from "./surftv";
+import { AuraEmitter, animateGear } from "./fx";
 import type { Garden } from "./data";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
@@ -345,6 +346,9 @@ export class World {
   private inside: { s: Station | null; room: Room; x: number; z: number; path: [number, number] | null; arrive: null | (() => void); face: number } | null = null;
   private fade: { t: number; mid: (() => void) | null; half?: number } | null = null;
   private tvTaps: number[] = [];
+  private rigFx: THREE.Object3D[] = [];
+  private auraKind: string | null = null;
+  private aura = new AuraEmitter(this.scene);
   private kingSignalUntil = 0;
   private savedCam: { yaw: number; pitch: number; dist: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
@@ -620,13 +624,16 @@ export class World {
       this.scene.remove(old);
       this.scene.add(rig.root);
       this.rig = rig;
+      this.rigFx = [];
+      rig.root.traverse((o) => o.name.startsWith("fx:") && this.rigFx.push(o));
     }
+    this.auraKind = look.player.aura ?? null;
     this.cloud.visible = look.player.cloud;
     const kind = look.player.pet ?? "";
     if ((this.pet?.kind ?? "") !== kind) {
       if (this.pet) this.scene.remove(this.pet.rig.root);
       this.pet = null;
-      if (kind === "dog" || kind === "cat") {
+      if (kind) {
         const rig = makePet(kind);
         this.scene.add(rig.root);
         const r = this.rig.root.position;
@@ -1210,12 +1217,19 @@ export class World {
         pt.face = Math.atan2(dx, dz);
       }
       pt.t += dt * (moving ? 14 : 2);
-      pt.rig.root.position.set(pt.x, this.inside ? 0 : standY(pt.x, pt.z), pt.z);
+      const fly = pt.kind === "dragon" ? 0.75 + Math.sin(now / 400) * 0.08 : 0;
+      pt.rig.root.position.set(pt.x, (this.inside ? 0 : standY(pt.x, pt.z)) + fly, pt.z);
+      if (fly) {
+        const sh = pt.rig.root.getObjectByName("shadow");
+        if (sh) sh.position.y = -fly + 0.02;
+      }
       let df = pt.face - pt.rig.root.rotation.y;
       df = Math.atan2(Math.sin(df), Math.cos(df));
       pt.rig.root.rotation.y += df * Math.min(1, dt * 8);
       pt.rig.legs.forEach((l, i) => (l.rotation.x = moving ? Math.sin(pt.t + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI : 0)) * 0.6 : 0));
-      pt.rig.tail.rotation.z = Math.sin(now / (pt.kind === "dog" ? 120 : 600)) * (pt.kind === "dog" ? 0.6 : 0.3);
+      pt.rig.tail.rotation.z = Math.sin(now / (pt.kind === "dog" || pt.kind === "fox" ? 120 : 600)) * (pt.kind === "dog" ? 0.6 : 0.3);
+      if (pt.kind === "dragon") pt.rig.legs.forEach((w, i) => (w.rotation.z = (i ? -1 : 1) * Math.sin(now / 110) * 0.7));
+      if (pt.kind === "penguin") pt.rig.root.rotation.z = moving ? Math.sin(pt.t * 0.8) * 0.12 : 0;
       pt.rig.head.rotation.y = moving ? 0 : Math.sin(now / 1500) * 0.4;
     }
     if ((this.tvFrame = (this.tvFrame + 1) % 2) === 0 && Math.hypot(this.cam.tx - BEACH_TV.x, this.cam.tz - BEACH_TV.y) < 30) {
@@ -1269,6 +1283,8 @@ export class World {
       s.mesh.scale.setScalar(0.6 + s.t * 1.6);
       ((s.mesh.material as THREE.MeshLambertMaterial).opacity = 0.55 * (1 - s.t));
     });
+    animateGear(this.rigFx, now / 1000);
+    this.aura.update(dt, this.rig.root.position, this.auraKind, walking);
     // effects
     this.fx.forEach((f) => (f.t += dt));
     this.fx = this.fx.filter((f) => f.t < 1.4);

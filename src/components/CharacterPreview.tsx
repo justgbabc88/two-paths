@@ -2,11 +2,13 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { PlayerAppearance } from "../game/appearance";
 import { makeCharacter, makePet } from "../game/models";
+import { AuraEmitter, animateGear, gearParts } from "../game/fx";
 
 // A small turntable that shows your character close up. Drag to spin.
 export function CharacterPreview({ appearance, label }: { appearance: PlayerAppearance; label?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const ctxRef = useRef<{ scene: THREE.Scene; holder: THREE.Group; render: () => void } | null>(null);
+  const fxRef = useRef<{ parts: THREE.Object3D[]; aura: string | null; pet: { legs: THREE.Object3D[]; kind: string; root: THREE.Object3D } | null }>({ parts: [], aura: null, pet: null });
   const spin = useRef({ angle: 0.5, drag: null as null | number, idle: 0 });
 
   // one renderer for the life of the panel
@@ -30,6 +32,10 @@ export function CharacterPreview({ appearance, label }: { appearance: PlayerAppe
     scene.add(floor);
     const holder = new THREE.Group();
     scene.add(holder);
+    const auraLayer = new THREE.Group();
+    holder.parent!.add(auraLayer);
+    const aura = new AuraEmitter(auraLayer);
+    const origin = new THREE.Vector3(0, 0, 0);
     const resize = () => {
       const r = cv.getBoundingClientRect();
       renderer.setSize(r.width, r.height, false);
@@ -49,6 +55,13 @@ export function CharacterPreview({ appearance, label }: { appearance: PlayerAppe
       holder.rotation.y = s.angle;
       const body = holder.children[0]?.children[0];
       if (body) body.position.y = Math.sin(now / 700) * 0.006; // breathing
+      const fx = fxRef.current;
+      animateGear(fx.parts, now / 1000);
+      aura.update(dt, origin, fx.aura, fx.aura === "petals" || fx.aura === "midas");
+      if (fx.pet?.kind === "dragon") {
+        fx.pet.legs.forEach((w, i) => (w.rotation.z = (i ? -1 : 1) * Math.sin(now / 110) * 0.7));
+        fx.pet.root.position.y = 0.6 + Math.sin(now / 400) * 0.06;
+      }
       renderer.render(scene, camera);
       raf = requestAnimationFrame(loop);
     };
@@ -63,7 +76,7 @@ export function CharacterPreview({ appearance, label }: { appearance: PlayerAppe
   }, []);
 
   // rebuild the model whenever the look changes
-  const key = JSON.stringify(appearance.look) + (appearance.pet ?? "");
+  const key = JSON.stringify(appearance.look) + (appearance.pet ?? "") + (appearance.aura ?? "");
   useEffect(() => {
     const ctx = ctxRef.current;
     if (!ctx) return;
@@ -73,12 +86,16 @@ export function CharacterPreview({ appearance, label }: { appearance: PlayerAppe
       if ((c as THREE.Mesh).isMesh) c.visible = false; // hide the blob shadow, the plinth is enough
     });
     ctx.holder.add(rig.root);
+    fxRef.current = { parts: gearParts(rig.root), aura: appearance.aura ?? null, pet: null };
     if (appearance.pet) {
       const pet = makePet(appearance.pet);
       pet.root.position.set(0.48, 0, 0.18);
       pet.root.rotation.y = -0.5;
       pet.root.scale.setScalar(1.15);
+      const sh = pet.root.getObjectByName("shadow");
+      if (sh && appearance.pet === "dragon") sh.visible = false;
       ctx.holder.add(pet.root);
+      fxRef.current.pet = { legs: pet.legs, kind: appearance.pet, root: pet.root };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);

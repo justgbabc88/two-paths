@@ -8,6 +8,7 @@
 import { SKILLS, type GameState, type SkillId } from "./data";
 import { dayKey, levelFor, parseKey, type Computed } from "./logic";
 import { ITEM, ITEMS, type ShopItem } from "./economy";
+import { SK } from "./data";
 
 export type Rarity = "common" | "uncommon" | "rare" | "legendary";
 export const RARITY_COLOR: Record<Rarity, string> = { common: "#c9c2b0", uncommon: "#5fbf4a", rare: "#4a8ae0", legendary: "#e0a020" };
@@ -196,4 +197,28 @@ export function milestoneGold(state: GameState): number {
   let g = 0;
   for (const s of SKILLS) for (let m = MILESTONE_STEP; m <= (state.milestones?.[s.id] ?? 0); m += MILESTONE_STEP) g += milestoneBounty(m);
   return g;
+}
+
+/** Why you can't buy an item yet (null if you can, gold aside). */
+export function unmetRequirement(it: ShopItem, state: GameState, c: Computed): string | null {
+  const r = it.requires;
+  if (!r) return null;
+  const need: string[] = [];
+  if (r.skill && r.level && levelFor(c.xp[r.skill]) < r.level) need.push(`${SK[r.skill].name} ${r.level}`);
+  if (r.total) {
+    const total = SKILLS.reduce((a, s) => a + levelFor(c.xp[s.id]), 0);
+    if (total < r.total) need.push(`total level ${r.total}`);
+  }
+  if (r.streak && streakInfo(state).best < r.streak) need.push(`a ${r.streak}-day streak`);
+  return need.length ? "Needs " + need.join(" + ") : null;
+}
+/** The requirement written out, met or not. */
+export function requirementText(it: ShopItem): string | null {
+  const r = it.requires;
+  if (!r) return null;
+  const parts: string[] = [];
+  if (r.skill && r.level) parts.push(`${SK[r.skill].name} ${r.level}`);
+  if (r.total) parts.push(`total level ${r.total}`);
+  if (r.streak) parts.push(`a ${r.streak}-day streak`);
+  return "Requires " + parts.join(" + ");
 }

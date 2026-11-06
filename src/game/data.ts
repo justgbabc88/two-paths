@@ -52,6 +52,8 @@ export interface GameState {
   quests?: QuestBook;
   /** Shop item ids you've bought. */
   owned?: string[];
+  /** What you paid for each item (prices change; your past purchases don't). */
+  paid?: Record<string, number>;
   /** Money moved from the bank to your wallet. */
   withdrawals?: { day: string; amount: number }[];
   /** How you've chosen to look (wardrobe + equipped shop items). */
@@ -96,6 +98,7 @@ export interface Custom {
   cape?: string; // item id, "" for none, undefined = whatever your level earns
   accessory?: string;
   pet?: string;
+  aura?: string;
 }
 
 export const SKILLS: Skill[] = [

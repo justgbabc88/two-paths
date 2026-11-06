@@ -6,7 +6,7 @@ import { SKILLS, type GameState, type SkillId, type VicePlace } from "./data";
 import { dayKey, levelFor, parseKey, project, type Computed } from "./logic";
 import type { StationId } from "./map";
 import type { Look } from "./models";
-import { ITEM } from "./economy";
+import { ITEM, type AuraKind, type PetKind } from "./economy";
 import { ownedIds } from "./rewards";
 import type { Custom } from "./data";
 
@@ -23,7 +23,8 @@ export interface PlayerAppearance {
   slouch: number; // 0-1
   cloud: boolean; // dark cloud overhead
   vigour: number; // 0-1, upright and quick
-  pet?: "dog" | "cat";
+  pet?: PetKind;
+  aura?: AuraKind;
 }
 export interface WorldLook {
   mood: Mood;
@@ -120,21 +121,29 @@ function dress(p: PlayerAppearance, state: GameState, age: number): PlayerAppear
   if (c.brows) look.brows = c.brows;
   if (c.glasses) look.glasses = c.glasses;
   if (c.freckles) look.freckles = true;
-  if (owns(c.top)) look.top = ITEM[c.top!].color!;
+  if (owns(c.top)) {
+    look.top = ITEM[c.top!].color!;
+    look.finish = ITEM[c.top!].finish;
+  }
   if (owns(c.hat)) {
     const it = ITEM[c.hat!];
     if (it.circlet) look.circlet = true;
     else look.hat = { kind: it.hat!, color: it.color! };
   }
   if (c.cape === "") look.cape = undefined;
-  else if (owns(c.cape)) look.cape = ITEM[c.cape!].color;
+  else if (owns(c.cape)) {
+    look.cape = ITEM[c.cape!].color;
+    look.capeStyle = ITEM[c.cape!].capeStyle;
+  }
   if (owns(c.accessory)) {
     const it = ITEM[c.accessory!];
     if (it.accessory === "satchel") look.satchel = it.color;
     if (it.accessory === "staff") look.staff = true;
+    if (it.gear) look.gear = [it.gear];
   }
   const pet = owns(c.pet) ? ITEM[c.pet!].pet : undefined;
-  return { ...p, look, pet };
+  const aura = owns(c.aura) ? ITEM[c.aura!].aura : undefined;
+  return { ...p, look, pet, aura };
 }
 
 /** The world as it is today. */
