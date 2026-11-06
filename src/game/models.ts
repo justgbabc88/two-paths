@@ -1116,3 +1116,125 @@ export function makePet(kind: "dog" | "cat"): PetRig {
   root.add(sh);
   return { root, legs, tail, head };
 }
+
+// ---------------- the garden's guardian statue (original design) ----------------
+/** A weathered bronze robot sentinel, seated cross-legged in meditation on a stone plinth. */
+export function makeGuardianStatue(): THREE.Group {
+  const g = new THREE.Group();
+  const bronze = "#6e5a3a",
+    dark = "#4e3f2a",
+    patina = "#5f7a62";
+  const add = (geo: THREE.BufferGeometry, color: string, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geo, mat(color));
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, rz);
+    g.add(m);
+    return m;
+  };
+  // plinth
+  add(new THREE.CylinderGeometry(0.62, 0.7, 0.3, 8), "#8a867c", 0, 0.15, 0);
+  add(new THREE.CylinderGeometry(0.55, 0.62, 0.08, 8), "#9a958a", 0, 0.34, 0);
+  // crossed legs: thick segmented plates
+  add(new THREE.BoxGeometry(0.62, 0.16, 0.3), bronze, -0.12, 0.48, 0.12, 0, 0.5, 0);
+  add(new THREE.BoxGeometry(0.62, 0.16, 0.3), dark, 0.12, 0.5, 0.14, 0, -0.5, 0);
+  for (const x of [-0.34, 0.34]) add(new THREE.CylinderGeometry(0.09, 0.09, 0.2, 8), dark, x, 0.5, 0.26, Math.PI / 2, 0, 0); // knee joints
+  // torso: a broad chest plate over a narrow waist
+  add(new THREE.CylinderGeometry(0.17, 0.2, 0.22, 8), dark, 0, 0.66, 0);
+  add(new THREE.BoxGeometry(0.56, 0.42, 0.3), bronze, 0, 0.96, 0);
+  add(new THREE.BoxGeometry(0.4, 0.14, 0.04), patina, 0, 1.02, 0.16); // chest vent
+  for (let i = 0; i < 3; i++) add(new THREE.BoxGeometry(0.34, 0.02, 0.05), dark, 0, 0.98 + i * 0.04 - 0.04, 0.17);
+  add(new THREE.SphereGeometry(0.06, 8, 6), "#9fd8d0", 0, 0.86, 0.16).material = new THREE.MeshLambertMaterial({ color: "#9fd8d0", emissive: "#2a6a64" }); // a soft core light
+  // shoulders and arms resting on the knees, hands in a meditation mudra
+  for (const s of [-1, 1]) {
+    add(new THREE.SphereGeometry(0.13, 8, 6), patina, s * 0.36, 1.12, 0);
+    add(new THREE.BoxGeometry(0.12, 0.3, 0.12), bronze, s * 0.42, 0.92, 0.05, 0.3, 0, s * 0.15);
+    add(new THREE.BoxGeometry(0.11, 0.11, 0.26), dark, s * 0.4, 0.74, 0.2, 0, 0, 0);
+    add(new THREE.SphereGeometry(0.07, 6, 4), bronze, s * 0.36, 0.7, 0.34);
+  }
+  // head: rounded helm with a single glowing visor slit and a short antenna
+  add(new THREE.CylinderGeometry(0.07, 0.08, 0.08, 6), dark, 0, 1.21, 0);
+  const helm = add(new THREE.SphereGeometry(0.17, 8, 6), bronze, 0, 1.36, 0);
+  helm.scale.set(1, 0.95, 1.05);
+  const visor = add(new THREE.BoxGeometry(0.22, 0.045, 0.05), "#9fd8d0", 0, 1.37, 0.16);
+  visor.material = new THREE.MeshLambertMaterial({ color: "#9fd8d0", emissive: "#2a6a64" });
+  visor.name = "visor";
+  add(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 5), dark, 0.08, 1.58, -0.02, 0, 0, -0.2);
+  add(new THREE.SphereGeometry(0.025, 6, 4), patina, 0.1, 1.69, -0.02);
+  // moss on the shoulders and a few leaves at its feet
+  for (const s of [-1, 1]) add(new THREE.SphereGeometry(0.08, 6, 3, 0, Math.PI * 2, 0, Math.PI / 2), "#4f6a2f", s * 0.36, 1.2, -0.02).scale.set(1.2, 0.5, 1.2);
+  return g;
+}
+
+// ---------------- Pen Gu Island ----------------
+export const palmGeo = {
+  trunk: (() => {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 6; i++) pts.push(new THREE.Vector3(Math.sin(i / 6) * 0.35, (i / 6) * 1.7, 0));
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 6, 0.07, 5);
+  })(),
+  frond: new THREE.ConeGeometry(0.16, 0.95, 4).rotateZ(Math.PI / 2).translate(0.47, 0, 0).scale(1, 0.25, 1),
+};
+export function makePalm(seed: number): THREE.Group {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(palmGeo.trunk, mat("#8a6a44")));
+  for (let i = 0; i < 7; i++) {
+    const f = new THREE.Mesh(palmGeo.frond, mat(i % 2 ? "#3f8a3a" : "#4f9a42"));
+    f.position.set(0.3, 1.7, 0);
+    f.rotation.set(0, (i / 7) * Math.PI * 2 + seed, -0.45 - (i % 3) * 0.12);
+    g.add(f);
+  }
+  for (let i = 0; i < 3; i++) g.add(new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 4), mat("#5a3a20"))).children.at(-1)!.position.set(0.3 + Math.cos(i * 2) * 0.08, 1.6, Math.sin(i * 2) * 0.08);
+  g.rotation.y = seed;
+  return g;
+}
+export function makeLounger(color: string): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(0.5, 0.05, 1.0, "#c9a878", 0, 0.22, 0.15));
+  const back = box(0.5, 0.05, 0.6, "#c9a878", 0, 0.42, -0.5);
+  back.rotation.x = 0.85;
+  g.add(back);
+  g.add(box(0.46, 0.02, 0.96, color, 0, 0.255, 0.15));
+  for (const x of [-0.22, 0.22]) for (const z of [-0.2, 0.6]) g.add(box(0.04, 0.22, 0.04, "#a88a5a", x, 0.11, z));
+  return g;
+}
+export function makeUmbrella(colors: [string, string]): THREE.Group {
+  const g = new THREE.Group();
+  g.add(cyl(0.025, 0.025, 1.7, 5, "#efe6d0", 0, 0.85, 0));
+  for (let i = 0; i < 8; i++) {
+    const seg = new THREE.Mesh(new THREE.ConeGeometry(0.85, 0.35, 8, 1, true, (i / 8) * Math.PI * 2, Math.PI / 4), new THREE.MeshLambertMaterial({ color: colors[i % 2], side: THREE.DoubleSide, flatShading: true }));
+    seg.position.y = 1.75;
+    g.add(seg);
+  }
+  return g;
+}
+export function makeVolleyNet(width: number): THREE.Group {
+  const g = new THREE.Group();
+  for (const x of [-width / 2, width / 2]) g.add(cyl(0.04, 0.05, 1.5, 6, "#efe6d0", x, 0.75, 0));
+  const net = new THREE.Mesh(new THREE.PlaneGeometry(width, 0.45, 12, 3), new THREE.MeshBasicMaterial({ color: "#2a2a2a", wireframe: true }));
+  net.position.y = 1.2;
+  g.add(net);
+  g.add(box(width, 0.04, 0.02, "#efe6d0", 0, 1.43, 0));
+  return g;
+}
+export function makeBall(): THREE.Mesh {
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.14, 1), new THREE.MeshLambertMaterial({ color: "#f4f0e0", flatShading: true }));
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.142, 0.018, 4, 12), mat("#2f7ac8"));
+  m.add(band);
+  const band2 = new THREE.Mesh(new THREE.TorusGeometry(0.142, 0.018, 4, 12).rotateY(Math.PI / 2), mat("#f2c040"));
+  m.add(band2);
+  return m;
+}
+export function makeFerry(): THREE.Group {
+  const g = new THREE.Group();
+  const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.38, 2.2, 8, 1, false, Math.PI / 2, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), mat("#7a3324"));
+  hull.scale.set(1, 0.6, 1);
+  g.add(hull);
+  g.add(box(0.95, 0.05, 1.9, "#a8743e", 0, 0.02, 0));
+  g.add(cyl(0.035, 0.04, 2.0, 6, "#5a3a20", 0, 1.0, 0.2));
+  const sail = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.3), new THREE.MeshLambertMaterial({ color: "#efe6d0", side: THREE.DoubleSide }));
+  sail.position.set(0, 1.15, 0.05);
+  sail.rotation.y = Math.PI / 2;
+  g.add(sail);
+  g.add(box(0.5, 0.18, 0.04, "#2a2a2a", 0, 1.25, 0.06)).children.at(-1)!.visible = false;
+  return g;
+}

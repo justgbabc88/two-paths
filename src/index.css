@@ -311,3 +311,10 @@ h2.s{font-family:"Silkscreen",monospace;font-size:11px;color:var(--gold);margin:
 .gd-sit{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
 .gd-sit button{background:#3a4028;border:1px solid #cfe0a8;color:#f2f0d8;padding:4px 10px}
 @media (max-width:640px){.garden{position:fixed;inset:8px;z-index:50}}
+/* volleyball */
+.volley{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:8px;background:rgba(24,18,12,.85);border:2px solid #8c7650;padding:5px 10px;color:#f2e6c4;font-size:14px}
+.volley b{font-family:"Silkscreen",monospace;font-weight:400;color:#f5d27a}
+.volley button{background:#2a1d12;border:1px solid #6b5235;color:#f2e2b6;padding:4px 10px}
+.volley .hit{min-width:70px;font-family:"Silkscreen",monospace;font-size:12px}
+.volley.now{border-color:#f5d020}
+.volley.now .hit{background:#f5d020;color:#1c130b;border-color:#fff2a0}

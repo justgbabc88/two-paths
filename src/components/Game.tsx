@@ -34,6 +34,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [menu, setMenu] = useState<{ s: Station; pos: { x: number; y: number } } | null>(null);
   const [talking, setTalking] = useState<Wanderer | null>(null);
   const [gardenOpen, setGardenOpen] = useState(false);
+  const [volley, setVolley] = useState<{ rally: number; best: number; window: boolean } | null>(null);
   const [shop, setShop] = useState<"shop" | "wardrobe" | "bank" | null>(null);
   const [fork, setFork] = useState<{ years: number; path: "keep" | "slide" } | null>(null);
   const forkRef = useRef(fork);
@@ -127,6 +128,11 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         setGroundMenu(null);
         setTalking(null);
       },
+      volley: (v) => {
+        setVolley((old) => (old && v && old.rally === v.rally && old.best === v.best && old.window === v.window ? old : v));
+        const saved = stateRef.current.bestRally ?? 0;
+        if (v && v.best > saved) commit({ ...stateRef.current, bestRally: v.best });
+      },
       openGarden: () => {
         setMenu(null);
         setGroundMenu(null);
@@ -179,6 +185,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
       },
     });
     worldRef.current = w;
+    w.setVolleyBest(stateRef.current.bestRally ?? 0);
     if (import.meta.env.DEV) (window as unknown as { __world: World }).__world = w; // for local testing only
     return () => {
       w.destroy();
@@ -354,6 +361,17 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
             <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Explore beyond the village: keep, woods, farms, coast.</div>
+            {volley && (
+              <div className={"volley" + (volley.window ? " now" : "")}>
+                <span>
+                  🏐 Rally <b>{volley.rally}</b> · best <b>{volley.best}</b>
+                </span>
+                <button className="hit" onPointerDown={(e) => { e.preventDefault(); worldRef.current?.volleyHit(); }}>
+                  {volley.window ? "HIT!" : "Hit"}
+                </button>
+                <button onClick={() => worldRef.current?.stopVolley()}>Stop</button>
+              </div>
+            )}
             {gardenOpen && (
               <GardenPanel
                 state={state}

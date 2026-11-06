@@ -58,6 +58,8 @@ export interface GameState {
   custom?: Custom;
   /** Your zen garden: raked lines, stones, and when you last swept it. */
   garden?: Garden;
+  /** Best volleyball rally on Pen Gu Island. */
+  bestRally?: number;
 }
 
 export interface Garden {

@@ -1,6 +1,7 @@
 // World layout: tile map, stations, collision and pathfinding.
 // Legend:  . grass  , flowers  = path  ~ water  h/v bridge (E-W / N-S)
 //          T tree  P pine  r rock  b bush  f fence  w wheat  W stone wall  M mountain
+//          k dark rock  n white sand  y orange sand  L palm   (Pen Gu Island, out to sea)
 //          (everything except grass, flowers, paths and bridges blocks movement)
 // The village from v2 sits in the middle at VILLAGE_X/VILLAGE_Y; the surroundings were
 // laid out around it (woods, keep ruins, mountains, farmland, coast).
@@ -65,6 +66,34 @@ export const MAP: string[] = [
   "TT...TTT.PTTTTT,............T......T~~~~~~~~~~~~~~~~~~~~~~v~~~~~~~~~~~~~",
   "TTTT....P.bPTTP.....T...............~~~~~~~~~~~~~~~~~~~~~~v~~~~~~~~~~~~~",
   "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~yy~~~~~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~yy~~~~~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkyykk~~~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~LkkkkkkL~~v~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kknnnnkk~hv~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kknknnknkk~v~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kknnnnnnkk~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~knnnnnnk~~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kknnnnnnkk~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kk~~~kkkknnnnkkkk~~~kk~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkk~kkkknnnnnnkkkk~kkk~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkkkkLknnnnnnnnkkLkkkk~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkkkkknnnnnnnnnnkkkkkk~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkkkkknnnnnnnnnnkkkkkk~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkkknnnnnnnnnnnnkkkk~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkrknnnnnnnnnnnnkkrk~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkkknnnnnnnnnnnnkkkk~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kkknnnnnnnnnnnnkkk~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kLnnnnnnnnnnnnkL~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kknnnnnnnnnnkk~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kknnnnnnnnnnkk~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~kknnnnnnnnkk~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~Lknnnnnnkk~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~yyynnnnyyy~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~yyyyy~~yyyyy~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~yyyy~~yyyy~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
 ];
 export const ROWS = MAP.length;
 export const COLS = MAP[0].length;
@@ -119,7 +148,7 @@ export const isPath = (c: string) => c === "=" || c === "h" || c === "v";
 export const blocked: boolean[][] = [];
 for (let y = 0; y < ROWS; y++) {
   blocked.push([]);
-  for (let x = 0; x < COLS; x++) blocked[y].push("TPrbf~wWM".includes(MAP[y][x]));
+  for (let x = 0; x < COLS; x++) blocked[y].push("TPrbf~wWML".includes(MAP[y][x]));
 }
 STATIONS.forEach((s) => {
   for (let y = s.y; y < s.y + s.h; y++) for (let x = s.x; x < s.x + s.w; x++) blocked[y][x] = true;
@@ -139,6 +168,14 @@ LANDMARKS.forEach((l) => {
   for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) blocked[y][x] = true;
 });
 export const landmarkAt = (x: number, y: number) => LANDMARKS.find((l) => x >= l.x && x < l.x + l.w && y >= l.y && y < l.y + l.h);
+
+/** Pen Gu Island, out to sea: the ferry runs between the end of the fishing pier and the island's jetty. */
+export const FERRY = { mainland: { x: 58, y: 54 }, island: { x: 58, y: 59 } };
+/** Volleyball court on the penguin's belly: you stand on one side, your partner on the other. */
+export const COURT = { x: 49, y: 69, w: 6, h: 5, you: { x: 52, y: 73 }, them: { x: 52, y: 69 } };
+/** Sun loungers on the beach (the tile you lie on). */
+export const LOUNGERS = [{ x: 49, y: 76 }, { x: 52, y: 76 }, { x: 55, y: 76 }];
+export const onIsland = (_x: number, y: number) => y >= 56;
 
 /** The zen garden: a walled sand garden you rake and tend, and a place to sit. */
 export const GARDEN = { x: 48, y: 10, w: 6, h: 4, ax: 50, ay: 14 };

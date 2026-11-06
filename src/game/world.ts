@@ -4,9 +4,9 @@
 // Talks to React only through WorldCallbacks.
 import * as THREE from "three";
 import { SK, type Habit } from "./data";
-import { COLS, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
+import { COLS, COURT, FERRY, LOUNGERS, FORK, GARDEN, isGarden, LANDMARKS, SHOP, isShop, ROWS, START, STATIONS, blocked, cell, findPath, isFork, isWater, landmarkAt, stationAt, stationIcon, type Landmark, type Pt, type Station, type StationId } from "./map";
 import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
-import { CHIMNEYS, buildStation, hash, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
+import { CHIMNEYS, buildStation, hash, makeBall, makeFerry, makeGuardianStatue, makeLounger, makePalm, makeUmbrella, makeVolleyNet, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { DEFAULT_GARDEN, drawGarden, leavesFor } from "./garden";
 import type { Garden } from "./data";
@@ -36,6 +36,8 @@ export interface WorldCallbacks {
   openShop(): void;
   /** Player reached the zen garden gate. */
   openGarden(): void;
+  /** Volleyball state changed (null = stopped). */
+  volley(v: { rally: number; best: number; window: boolean } | null): void;
 }
 
 interface Npc {
@@ -81,6 +83,8 @@ for (let j = 0; j <= ROWS; j++) {
     const st = [footprintOf(i - 1, j - 1), footprintOf(i, j - 1), footprintOf(i - 1, j), footprintOf(i, j)].find(Boolean);
     if (st) h = stationBase.get(st.id)!;
     if ([[i - 1, j - 1], [i, j - 1], [i - 1, j], [i, j]].some(([x, y]) => isGarden(x, y))) h = GARDEN_BASE;
+    const isle = tiles.filter((c) => "knyL".includes(c)).length;
+    if (isle) h = 0.25 + (tiles.filter((c) => c === "k").length * 0.06) + hash(i, j) * 0.04;
     const rock = tiles.filter((c) => c === "M").length;
     if (rock) h += rock * 0.3 + (rock === 4 ? 0.7 + hash(i * 1.7, j * 2.3) * 1.6 + Math.max(0, 6 - j) * 0.18 : 0);
     if (wet === 4) h = -0.55;
@@ -114,6 +118,9 @@ function tileColor(x: number, y: number): THREE.Color {
   let base: string;
   if (c === "M") base = corner[y]?.[x] > 3.0 ? "#a8a59c" : corner[y]?.[x] > 1.8 ? (hash(x, y) > 0.5 ? "#5e5a52" : "#67625a") : hash(x, y) > 0.5 ? "#4e4b44" : "#57534a";
   else if (c === "w") base = "#7a6a3a";
+  else if (c === "k") base = "#2e3036";
+  else if (c === "n" || c === "L") base = "#ece4cf";
+  else if (c === "y") base = "#e0952a";
   else if (isWater(c)) base = "#4b4a36";
   else if (c === "=") base = "#86694a";
   else if (st?.id === "health") base = "#7a6143";
@@ -259,6 +266,15 @@ export class World {
   private boats: THREE.Object3D[] = [];
   private fork!: THREE.Group;
   private shop!: THREE.Group;
+  private ferry!: THREE.Group;
+  private ferrySide: "mainland" | "island" = "mainland";
+  private sail: { t: number; dur: number; pts: THREE.Vector3[]; to: "mainland" | "island" } | null = null;
+  private ball!: THREE.Mesh;
+  private courtNet!: THREE.Group;
+  private kiki!: CharacterRig;
+  private loungers: THREE.Group[] = [];
+  private lounging: number | null = null;
+  private vb: { active: boolean; toYou: boolean; t: number; dur: number; rally: number; best: number; hit: number; kikiJump: number; dropT: number } = { active: false, toYou: false, t: 0, dur: 1.15, rally: 0, best: 0, hit: 0, kikiJump: 0, dropT: 0 };
   private garden!: THREE.Group;
   private gardenStones = new THREE.Group();
   private gardenCanvas = document.createElement("canvas");
@@ -278,7 +294,7 @@ export class World {
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
 
-  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false, pendingGarden: false };
+  private P = { x: START.x, y: START.y, px: START.x, py: START.y, path: [] as Pt[], face: Math.PI, walkT: 0, action: null as null | { habit: Habit; neg: boolean; id: ActionId }, actionT: 0, fxT: 0, pendingStation: null as Station | null, pendingNpc: null as Npc | null, pendingFork: false, pendingShop: false, pendingGarden: false, pendingArrive: null as null | (() => void) };
   private cam = { yaw: 0, pitch: 0.82, dist: 11, tx: START.x + 0.5, tz: START.y + 0.5 };
   private keys = new Set<string>();
   private drops: Drop[] = [];
@@ -360,6 +376,10 @@ export class World {
       group.position.set(GARDEN.x + GARDEN.w / 2, GARDEN_BASE, GARDEN.y + GARDEN.h / 2);
       group.userData.garden = true;
       group.add(this.gardenStones);
+      const statue = makeGuardianStatue();
+      statue.position.set(0, 0.06, -d / 2 + 0.5);
+      statue.scale.setScalar(0.9);
+      group.add(statue);
       this.gardenCanvas.width = 768;
       this.gardenCanvas.height = 512;
       this.gardenTex = new THREE.CanvasTexture(this.gardenCanvas);
@@ -369,6 +389,54 @@ export class World {
       this.garden = group;
       sc.add(group);
     }
+    // ---- Pen Gu Island ----
+    for (let y = 0; y < ROWS; y++)
+      for (let x = 0; x < COLS; x++)
+        if (cell(x, y) === "L") {
+          const palm = makePalm(hash(x, y) * 6);
+          palm.position.set(x + 0.5, groundAt(x + 0.5, y + 0.5), y + 0.5);
+          sc.add(palm);
+        }
+    {
+      const cz = COURT.y + COURT.h / 2,
+        cx = COURT.x + COURT.w / 2;
+      const net = makeVolleyNet(COURT.w - 0.4);
+      net.position.set(cx, groundAt(cx, cz), cz);
+      sc.add(net);
+      // court lines
+      const line = new THREE.MeshBasicMaterial({ color: "#c8b48a" });
+      for (const [w, d, x, z] of [[COURT.w, 0.05, cx, COURT.y], [COURT.w, 0.05, cx, COURT.y + COURT.h], [0.05, COURT.h, COURT.x, cz], [0.05, COURT.h, COURT.x + COURT.w, cz]] as const) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), line);
+        m.position.set(x, groundAt(x, z) + 0.02, z);
+        sc.add(m);
+      }
+      this.ball = makeBall();
+      this.ball.position.set(cx, groundAt(cx, cz) + 0.15, cz + 1.2);
+      this.ball.userData.court = true;
+      sc.add(this.ball);
+      net.userData.court = true;
+      this.courtNet = net;
+      this.kiki = makeCharacter({ skin: "#b9825a", top: "#e0602a", bottom: "#2f5a8a", hair: "#1e1610", hairStyle: "bun", hat: { kind: "cap", color: "#f2c040" } });
+      const kz = COURT.them.y + 0.5;
+      this.kiki.root.position.set(COURT.them.x + 0.5, groundAt(COURT.them.x + 0.5, kz), kz);
+      this.kiki.root.userData.court = true;
+      sc.add(this.kiki.root);
+    }
+    LOUNGERS.forEach((l, i) => {
+      const lg = makeLounger(["#e05a5a", "#3a8ac8", "#f2c040"][i % 3]);
+      lg.position.set(l.x + 0.5, groundAt(l.x + 0.5, l.y + 0.5), l.y + 0.5);
+      lg.rotation.y = Math.PI; // face the sea to the south
+      lg.userData.lounger = i;
+      sc.add(lg);
+      this.loungers.push(lg);
+      const um = makeUmbrella(i % 2 ? ["#3a8ac8", "#f4f0e0"] : ["#e05a5a", "#f4f0e0"]);
+      um.position.set(l.x + 1.2, groundAt(l.x + 1.2, l.y + 0.3), l.y + 0.3);
+      sc.add(um);
+    });
+    this.ferry = makeFerry();
+    this.ferry.userData.ferry = true;
+    sc.add(this.ferry);
+    this.parkFerry("mainland");
     this.fork = makeFork();
     this.fork.position.set(FORK.x + FORK.w / 2, groundAt(FORK.x + FORK.w / 2, FORK.y + 0.5), FORK.y + 0.5);
     this.fork.userData.fork = true;
@@ -492,12 +560,15 @@ export class World {
     return { x: ((e.clientX - r.left) * VIEW_W) / r.width, y: ((e.clientY - r.top) * VIEW_H) / r.height };
   }
   /** What is under a point in view coordinates: a station, or a ground tile. */
-  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; shop?: boolean; garden?: boolean; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
+  private pick(vx: number, vy: number): { station?: Station; npc?: Npc; fork?: boolean; shop?: boolean; garden?: boolean; ferry?: boolean; court?: boolean; lounger?: number; landmark?: Landmark; tile?: Pt; point?: THREE.Vector3 } {
     this.ray.setFromCamera(new THREE.Vector2((vx / VIEW_W) * 2 - 1, -(vy / VIEW_H) * 2 + 1), this.camera);
-    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.shop, this.garden, this.terrain], true)[0];
+    const hit = this.ray.intersectObjects([...this.npcs.map((n) => n.rig.body), ...this.stationGroups, ...this.landmarkGroups, this.fork, this.shop, this.garden, this.ferry, this.courtNet, this.ball, this.kiki.root, ...this.loungers, this.terrain], true)[0];
     if (!hit) return {};
     let o: THREE.Object3D | null = hit.object;
-    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark && !o.userData.shop && !o.userData.garden) o = o.parent;
+    while (o && !o.userData.station && !o.userData.npc && !o.userData.fork && !o.userData.landmark && !o.userData.shop && !o.userData.garden && !o.userData.ferry && !o.userData.court && o.userData.lounger === undefined) o = o.parent;
+    if (o?.userData.ferry) return { ferry: true, point: hit.point };
+    if (o?.userData.court) return { court: true, point: hit.point };
+    if (o && o.userData.lounger !== undefined) return { lounger: o.userData.lounger as number, point: hit.point };
     if (o?.userData.garden || isGarden(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { garden: true, point: hit.point };
     if (o?.userData.shop || isShop(Math.floor(hit.point.x), Math.floor(hit.point.z))) return { shop: true, point: hit.point };
     const lm = (o?.userData.landmark as Landmark | undefined) ?? landmarkAt(Math.floor(hit.point.x), Math.floor(hit.point.z));
@@ -526,7 +597,7 @@ export class World {
     for (let y = 0; y < ROWS; y++)
       for (let x = 0; x < COLS; x++) {
         const ch = cell(x, y);
-        g.fillStyle = ch === "~" ? "#2f5672" : ch === "h" || ch === "v" ? "#6b4a2c" : ch === "=" ? "#9b8460" : ch === "T" || ch === "P" ? "#2f4a22" : ch === "r" ? "#77746c" : ch === "M" ? "#5e5a54" : ch === "w" ? "#b39a4a" : ch === "W" ? "#8a867c" : ch === "f" ? "#6b4a2c" : "#4f6a2f";
+        g.fillStyle = ch === "k" ? "#24262a" : ch === "n" || ch === "L" ? "#f0eadc" : ch === "y" ? "#e0952a" : ch === "~" ? "#2f5672" : ch === "h" || ch === "v" ? "#6b4a2c" : ch === "=" ? "#9b8460" : ch === "T" || ch === "P" ? "#2f4a22" : ch === "r" ? "#77746c" : ch === "M" ? "#5e5a54" : ch === "w" ? "#b39a4a" : ch === "W" ? "#8a867c" : ch === "f" ? "#6b4a2c" : "#4f6a2f";
         g.fillRect(x * MM.scale, y * MM.scale, MM.scale, MM.scale);
       }
     [...STATIONS, ...LANDMARKS].forEach((s) => {
@@ -640,6 +711,20 @@ export class World {
       ctx.fillStyle = "#f2e6c4";
       ctx.fillText(lab, p.x, p.y + 10);
     });
+    // the island's name, floating over the penguin
+    {
+      const p = this.project(52.5, 2.2, 66);
+      if (!p.behind && p.x > -60 && p.x < VIEW_W + 60) {
+        ctx.font = "13px Silkscreen, monospace";
+        const lab = "🐧 Pen Gu Island";
+        const tw = ctx.measureText(lab).width + 10;
+        ctx.fillStyle = "rgba(0,0,0,.5)";
+        ctx.fillRect(p.x - tw / 2, p.y - 12, tw, 16);
+        ctx.fillStyle = "#f5e7c3";
+        ctx.fillText(lab, p.x, p.y);
+        ctx.font = "10px Silkscreen, monospace";
+      }
+    }
     // the garden's label
     {
       const p = this.project(this.garden.position.x, this.garden.position.y, this.garden.position.z + GARDEN.h / 2 + 0.3);
@@ -777,6 +862,15 @@ export class World {
         } else if (p.garden) {
           verb = "Tend";
           name = " Zen garden";
+        } else if (p.ferry) {
+          verb = "Board";
+          name = this.ferrySide === "mainland" ? " Ferry to Pen Gu Island" : " Ferry to the mainland";
+        } else if (p.court) {
+          verb = "Play";
+          name = " Volleyball";
+        } else if (p.lounger !== undefined) {
+          verb = "Relax-on";
+          name = " Sun lounger";
         } else if (p.landmark) {
           verb = "Examine";
           name = " " + p.landmark.name;
@@ -818,7 +912,9 @@ export class World {
     if (this.keys.has("ArrowDown")) this.cam.pitch = Math.max(0.42, this.cam.pitch - dt * 1.2);
     // movement
     let walking = false;
-    if (P.path.length && !P.action) {
+    if (this.sail) this.updateSail(dt);
+    if (this.vb.active) this.updateVolley(dt);
+    if (P.path.length && !P.action && !this.sail) {
       walking = true;
       P.walkT += dt;
       const [nx, ny] = P.path[0];
@@ -835,6 +931,11 @@ export class World {
           P.pendingStation = null;
           this.faceStation(s);
           this.cb.openStation(s, this.stationScreenPos(s));
+        }
+        if (!P.path.length && P.pendingArrive) {
+          const f = P.pendingArrive;
+          P.pendingArrive = null;
+          f();
         }
         if (!P.path.length && P.pendingGarden) {
           P.pendingGarden = false;
@@ -878,6 +979,36 @@ export class World {
       wz = P.py + 0.5;
     this.pose(rig, wx, wz, P.face, walking, P.walkT, dt, 11);
     this.animateAction(rig, P.action?.id ?? null, P.actionT);
+    if (this.sail) {
+      rig.root.position.set(this.ferry.position.x, this.ferry.position.y + 0.08, this.ferry.position.z);
+      rig.root.rotation.y = this.ferry.rotation.y;
+    }
+    if (this.lounging !== null && !P.path.length) {
+      const l = LOUNGERS[this.lounging];
+      rig.root.position.set(l.x + 0.5, groundAt(l.x + 0.5, l.y + 0.5) + 0.27, l.y + 0.5 + 0.35);
+      rig.root.rotation.y = 0;
+      rig.body.rotation.x = -1.25;
+      rig.legL.rotation.x = rig.legR.rotation.x = 1.2;
+      rig.armL.rotation.set(-0.2, 0, -0.3);
+      rig.armR.rotation.set(-2.9, 0, 0.5); // hand behind the head
+    }
+    if (this.vb.active && this.vb.hit > 0) {
+      const j = Math.sin((this.vb.hit / 0.35) * Math.PI);
+      rig.root.position.y += j * 0.25;
+      rig.armL.rotation.set(-2.6, 0, 0.25);
+      rig.armR.rotation.set(-2.6, 0, -0.25);
+    }
+    {
+      const kr = this.kiki;
+      const kz = COURT.them.y + 0.5,
+        kx = COURT.them.x + 0.5;
+      const j = this.vb.kikiJump > 0 ? Math.sin((this.vb.kikiJump / 0.35) * Math.PI) : 0;
+      kr.root.position.set(kx, groundAt(kx, kz) + j * 0.25, kz);
+      kr.root.rotation.y = 0;
+      kr.armL.rotation.set(j ? -2.6 : -0.3, 0, 0.2);
+      kr.armR.rotation.set(j ? -2.6 : -0.3, 0, -0.2);
+      kr.head.rotation.y = Math.sin(now / 900) * 0.2;
+    }
     const sl = this.look?.player.slouch ?? 0;
     if (sl > 0 && P.action?.id !== "sleep" && P.action?.id !== "meditate") {
       rig.body.rotation.x += sl * 0.22;
@@ -1166,6 +1297,132 @@ export class World {
   setQuestGivers(ids: string[]) {
     this.questGivers = new Set(ids);
   }
+  // ---- ferry ----
+  private parkFerry(side: "mainland" | "island") {
+    this.ferrySide = side;
+    if (side === "mainland") {
+      this.ferry.position.set(FERRY.mainland.x + 0.5, WATER_Y + 0.05, FERRY.mainland.y + 1.45);
+      this.ferry.rotation.y = 0;
+    } else {
+      this.ferry.position.set(FERRY.island.x + 1.5, WATER_Y + 0.05, FERRY.island.y + 1.2);
+      this.ferry.rotation.y = Math.PI;
+    }
+  }
+  private startSail() {
+    const to = this.ferrySide === "mainland" ? "island" : "mainland";
+    const a = new THREE.Vector3(FERRY.mainland.x + 0.5, 0, FERRY.mainland.y + 1.45),
+      b = new THREE.Vector3(FERRY.island.x + 1.5, 0, FERRY.island.y + 1.2);
+    const mid1 = new THREE.Vector3(63, 0, 55.8),
+      mid2 = new THREE.Vector3(64.5, 0, 59.5);
+    const pts = to === "island" ? [a, mid1, mid2, b] : [b, mid2, mid1, a];
+    this.sail = { t: 0, dur: 6, pts, to };
+    this.lounging = null;
+    this.cb.chat(to === "island" ? "You climb aboard. The ferry pushes off for Pen Gu Island." : "You climb aboard. Back to the mainland.", "hint");
+  }
+  private updateSail(dt: number) {
+    const s = this.sail!;
+    s.t += dt;
+    const k = Math.min(1, s.t / s.dur);
+    const curve = new THREE.CatmullRomCurve3(s.pts);
+    const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const pos = curve.getPointAt(e),
+      tan = curve.getTangentAt(e);
+    this.ferry.position.set(pos.x, WATER_Y + 0.05 + Math.sin(s.t * 3) * 0.03, pos.z);
+    this.ferry.rotation.y = Math.atan2(tan.x, tan.z);
+    this.ferry.rotation.z = Math.sin(s.t * 2) * 0.04;
+    const P = this.P;
+    P.px = pos.x - 0.5;
+    P.py = pos.z - 0.5;
+    P.face = this.ferry.rotation.y;
+    if (k >= 1) {
+      const land = FERRY[s.to];
+      P.x = P.px = land.x;
+      P.y = P.py = land.y;
+      this.parkFerry(s.to);
+      this.sail = null;
+      this.cb.chat(s.to === "island" ? "Welcome to Pen Gu Island. Warm sand, a net, and nowhere to be." : "You step back onto the pier.", "lvl");
+    }
+  }
+  // ---- loungers ----
+  private lieDown(i: number) {
+    this.lounging = i;
+    this.P.face = 0;
+    this.cb.chat(["You stretch out in the sun. The waves do the rest.", "You lie back and listen to the sea.", "You close your eyes. Nothing needs you right now."][i % 3], "hint");
+  }
+  // ---- volleyball ----
+  private courtPoint(you: boolean) {
+    const t = you ? COURT.you : COURT.them;
+    return new THREE.Vector3(t.x + 0.5, groundAt(t.x + 0.5, t.y + 0.5) + 1.25, t.y + 0.5 + (you ? -0.3 : 0.3));
+  }
+  private startVolley() {
+    this.lounging = null;
+    this.P.face = Math.PI;
+    this.vb = { ...this.vb, active: true, toYou: true, t: -0.8, rally: 0, hit: 0, dropT: 0 };
+    this.cb.chat("Kiki tosses you a grin and serves. Click, tap or press space as the ball reaches you.", "hint");
+    this.cb.volley({ rally: 0, best: this.vb.best, window: false });
+  }
+  /** Try to hit the ball (click, tap, space or the Hit button). */
+  volleyHit() {
+    const v = this.vb;
+    if (!v.active) return;
+    v.hit = 0.35;
+    if (v.toYou && v.t >= v.dur * 0.62 && v.dropT === 0) {
+      v.rally++;
+      v.toYou = false;
+      v.t = 0;
+      if (v.rally > v.best) v.best = v.rally;
+      this.cb.volley({ rally: v.rally, best: v.best, window: false });
+    }
+  }
+  stopVolley() {
+    if (!this.vb.active) return;
+    this.vb.active = false;
+    this.cb.volley(null);
+    this.cb.chat(`You wave to Kiki and step off the court. Best rally: ${this.vb.best}.`, "sys");
+  }
+  setVolleyBest(n: number) {
+    this.vb.best = Math.max(this.vb.best, n);
+  }
+  private updateVolley(dt: number) {
+    const v = this.vb;
+    v.hit = Math.max(0, v.hit - dt);
+    v.kikiJump = Math.max(0, v.kikiJump - dt);
+    if (v.dropT > 0) {
+      v.dropT += dt;
+      this.ball.position.y = Math.max(groundAt(this.ball.position.x, this.ball.position.z) + 0.15, this.ball.position.y - dt * 4);
+      if (v.dropT > 1.4) {
+        // Kiki serves again
+        v.dropT = 0;
+        v.toYou = true;
+        v.t = -0.3;
+        v.rally = 0;
+        this.cb.volley({ rally: 0, best: v.best, window: false });
+      }
+      return;
+    }
+    v.t += dt;
+    const from = this.courtPoint(!v.toYou),
+      to = this.courtPoint(v.toYou);
+    const k = Math.max(0, Math.min(1.15, v.t / v.dur));
+    const pos = from.clone().lerp(to, Math.min(1, k));
+    pos.y += Math.sin(Math.min(1, k) * Math.PI) * 1.9;
+    if (k > 1) pos.y -= (k - 1) * 6;
+    this.ball.position.copy(pos);
+    this.ball.rotation.x += dt * 8;
+    const window = v.toYou && v.t >= v.dur * 0.62 && k <= 1.1;
+    this.cb.volley({ rally: v.rally, best: v.best, window });
+    if (!v.toYou && k >= 1) {
+      // Kiki always gets it back
+      v.kikiJump = 0.35;
+      v.toYou = true;
+      v.t = 0;
+      v.dur = Math.max(0.75, 1.15 - v.rally * 0.02); // the rally speeds up
+    } else if (v.toYou && k > 1.1) {
+      v.dropT = 0.01;
+      this.cb.chat(v.rally ? `The ball drops. Rally of ${v.rally}!` : "Missed! Kiki laughs and fetches the ball.", v.rally >= 5 ? "lvl" : "sys");
+    }
+  }
+
   /** Repaint the sand and re-place the stones to match your garden. */
   setGarden(g: Garden | undefined, created: string) {
     const garden = g ?? DEFAULT_GARDEN;
@@ -1320,6 +1577,12 @@ export class World {
   };
   private leftClick(v: { x: number; y: number }) {
     this.cb.closeMenu();
+    if (this.sail) return;
+    if (this.vb.active) {
+      this.volleyHit();
+      return;
+    }
+    this.lounging = null;
     if (this.inCompass(v.x, v.y)) {
       this.cam.yaw = 0;
       return;
@@ -1342,6 +1605,29 @@ export class World {
     if (p.fork) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
       this.goToFork();
+      return;
+    }
+    if (p.ferry || p.court || p.lounger !== undefined) {
+      if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
+      const P = this.P;
+      const dest = p.ferry ? FERRY[this.ferrySide] : p.court ? COURT.you : LOUNGERS[p.lounger!];
+      P.pendingStation = null;
+      P.pendingNpc = null;
+      P.pendingFork = false;
+      P.pendingShop = false;
+      P.pendingGarden = false;
+      const arrive = () => (p.ferry ? this.startSail() : p.court ? this.startVolley() : this.lieDown(p.lounger!));
+      if (P.x === dest.x && P.y === dest.y) {
+        arrive();
+        return;
+      }
+      const path = findPath(P.x, P.y, dest.x, dest.y);
+      if (!path) {
+        this.cb.chat(p.ferry && this.ferrySide === "island" ? "The ferry is waiting at the island." : p.ferry ? "The ferry is waiting at the mainland pier." : "You can't reach that from here.", "sys");
+        return;
+      }
+      P.path = path;
+      P.pendingArrive = arrive;
       return;
     }
     if (p.garden) {
@@ -1440,6 +1726,7 @@ export class World {
     P.pendingFork = false;
     P.pendingShop = false;
     P.pendingGarden = false;
+    P.pendingArrive = null;
   }
   private faceStation(s: Station) {
     const P = this.P;
@@ -1466,6 +1753,15 @@ export class World {
   private onKeyDown = (e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (this.vb.active && (e.key === " " || e.key === "Enter")) {
+      e.preventDefault();
+      this.volleyHit();
+      return;
+    }
+    if (this.vb.active && e.key === "Escape") {
+      this.stopVolley();
+      return;
+    }
     if (e.key.startsWith("Arrow")) {
       e.preventDefault();
       this.keys.add(e.key);
