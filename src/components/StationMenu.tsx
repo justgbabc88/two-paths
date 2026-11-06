@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { SK, type GameState, type Habit } from "../game/data";
 import { VIEW_W, habitsAtStation, type Station } from "../game/world";
 
@@ -8,7 +8,7 @@ interface Props {
   canvas: HTMLCanvasElement;
   state: GameState;
   viewDay: string;
-  onDo(h: Habit): void;
+  onDo(h: Habit, note: string): void;
   onUndo(s: Station): void;
   onExamine(s: Station): void;
   onClose(): void;
@@ -52,8 +52,31 @@ export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onU
   const ref = useRef<HTMLDivElement>(null);
   const habits = habitsAtStation(s, state.habits);
   const log = state.logs[viewDay] || {};
+  const [confirm, setConfirm] = useState<Habit | null>(null);
+  const [note, setNote] = useState("");
+  const today = new Date();
+  const todayKey = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+  const when = viewDay === todayKey ? "today" : "on " + new Date(viewDay + "T12:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
-  useMenuPosition(ref, canvas, pos, habits.length);
+  useMenuPosition(ref, canvas, pos, habits.length + (confirm ? 3 : 0));
+
+  if (confirm)
+    return (
+      <div className="menu confirm" ref={ref}>
+        <div className="mh">Did you really do this?</div>
+        <p className="cf-q">
+          <b>{confirm.name}</b>, {when}.{" "}
+          {confirm.type === "neg" ? "Logging it honestly is what keeps your future accurate." : "XP only counts for things you actually did."}
+        </p>
+        <input className="cf-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a note (optional)" maxLength={140} />
+        <button className={confirm.type === "neg" ? "neg" : "yes"} onClick={() => onDo(confirm, note.trim())}>
+          {confirm.type === "neg" ? "Yes, I did it. Log it honestly" : "Yes, I really did it"}
+        </button>
+        <button className="cancel" onClick={() => setConfirm(null)}>
+          No, go back
+        </button>
+      </div>
+    );
 
   return (
     <div className="menu" ref={ref}>
@@ -66,7 +89,7 @@ export function StationMenu({ station: s, pos, canvas, state, viewDay, onDo, onU
       {habits.map((h) => {
         const n = log[h.id] || 0;
         return (
-          <button key={h.id} className={h.type === "neg" ? "neg" : ""} onClick={() => onDo(h)}>
+          <button key={h.id} className={h.type === "neg" ? "neg" : ""} onClick={() => setConfirm(h)}>
             {h.name}{" "}
             <span>
               {h.type === "neg" ? "-" : "+"}

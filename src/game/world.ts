@@ -16,8 +16,9 @@ import type { PropId } from "./models";
 export { STATIONS, habitsAtStation, type Station } from "./map";
 
 /** Logical size of the view; menus are positioned in these coordinates. */
-export const VIEW_W = 640,
-  VIEW_H = 448;
+// Size of the view in CSS pixels. Live bindings: they follow the window as it resizes.
+export let VIEW_W = 640;
+export let VIEW_H = 448;
 
 export interface WorldCallbacks {
   chat(text: string, cls?: string): void;
@@ -292,6 +293,8 @@ export class World {
   private npcs: Npc[] = [];
   private smoke: { mesh: THREE.Mesh; t: number; ox: number; oy: number; oz: number }[] = [];
   private hud: CanvasRenderingContext2D;
+  private glCanvas!: HTMLCanvasElement;
+  private ro!: ResizeObserver;
   private hudCv: HTMLCanvasElement;
   private minimap: HTMLCanvasElement;
   private cb: WorldCallbacks;
@@ -316,12 +319,17 @@ export class World {
     this.renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.renderer.setSize(VIEW_W, VIEW_H, false);
+    this.glCanvas = glCanvas;
     this.hudCv = hudCanvas;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     hudCanvas.width = VIEW_W * dpr;
     hudCanvas.height = VIEW_H * dpr;
     this.hud = hudCanvas.getContext("2d")!;
     this.hud.scale(dpr, dpr);
+    // fill whatever space the page gives the view, and follow it as the window changes
+    this.ro = new ResizeObserver(() => this.fit());
+    this.ro.observe(glCanvas.parentElement ?? glCanvas);
+    this.fit();
 
     const sc = this.scene;
     sc.background = new THREE.Color(FOG);
@@ -494,7 +502,26 @@ export class World {
     this.raf = requestAnimationFrame(this.loop);
   }
 
+  /** Match the renderer, camera and HUD to the element's size. */
+  private fit() {
+    const host = this.glCanvas.parentElement ?? this.glCanvas;
+    const r = host.getBoundingClientRect();
+    const w = Math.max(320, Math.round(r.width)),
+      h = Math.max(240, Math.round(r.height));
+    if (w === VIEW_W && h === VIEW_H && this.hudCv.width) return;
+    VIEW_W = w;
+    VIEW_H = h;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.hudCv.width = w * dpr;
+    this.hudCv.height = h * dpr;
+    this.hud.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
   destroy() {
+    this.ro?.disconnect();
     cancelAnimationFrame(this.raf);
     const h = this.hudCv;
     h.removeEventListener("pointerdown", this.onDown);

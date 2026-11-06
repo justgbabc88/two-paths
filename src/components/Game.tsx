@@ -13,6 +13,7 @@ import { QUESTS, isFinished, statusOf, type Quest } from "../game/quests";
 import { QuestsPane } from "./QuestsPane";
 import { ShopPanel } from "./ShopPanel";
 import { GardenPanel } from "./GardenPanel";
+import { CalendarPanel } from "./CalendarPanel";
 import { flowFor, gp, money, type ShopItem } from "../game/economy";
 import type { Custom } from "../game/data";
 import type { Wanderer } from "../game/wanderers";
@@ -34,6 +35,8 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const [menu, setMenu] = useState<{ s: Station; pos: { x: number; y: number } } | null>(null);
   const [talking, setTalking] = useState<Wanderer | null>(null);
   const [gardenOpen, setGardenOpen] = useState(false);
+  const [calendar, setCalendar] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 760); // phones start with the world in view
   const [volley, setVolley] = useState<{ rally: number; best: number; window: boolean } | null>(null);
   const [shop, setShop] = useState<"shop" | "wardrobe" | "bank" | null>(null);
   const [fork, setFork] = useState<{ years: number; path: "keep" | "slide" } | null>(null);
@@ -75,6 +78,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
       welcomed.current = true;
       chat("Welcome to Two Paths.", "lvl");
       chat("Walk to a station and work there. Every action you take here is one you really did today.", "sys");
+      chat("Click to walk, drag to turn the camera, scroll to zoom, right-click for options. Explore beyond the village: keep, woods, farms, coast, and the island.", "hint");
       if (!stateRef.current.habits.length) chat("No habits yet. Open the Habits tab and add the starter set.", "hint");
     }
     const s = new Sync(
@@ -256,8 +260,14 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   };
 
   // ---- menu actions ----
-  const onDo = (h: Habit) => {
+  const onDo = (h: Habit, note: string) => {
     setMenu(null);
+    if (note) {
+      // keep the note in that day's journal
+      const st = stateRef.current;
+      const prev = st.notes?.[viewDay];
+      commit({ ...st, notes: { ...st.notes, [viewDay]: (prev ? prev + "\n" : "") + `• ${h.name}: ${note}` } });
+    }
     worldRef.current?.startAction(h);
   };
   const onUndo = (s: Station) => {
@@ -354,13 +364,15 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
               <button onClick={() => setShop("wardrobe")} title="Change how you look">
                 Wardrobe
               </button>
+              <button onClick={() => setCalendar(true)} title="Look back at what you did">
+                📅 Calendar
+              </button>
               <span className="sync">{sync}</span>
             </div>
           </div>
-          <div style={{ position: "relative" }}>
+          <div className="viewport">
             <canvas ref={canvasRef} className="gl" />
             <canvas ref={hudRef} className="hud" />
-            <div className="hint-overlay">Click to walk. Drag to turn the camera, scroll to zoom. Right-click for options. Explore beyond the village: keep, woods, farms, coast.</div>
             {volley && (
               <div className={"volley" + (volley.window ? " now" : "")}>
                 <span>
@@ -371,6 +383,23 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
                 </button>
                 <button onClick={() => worldRef.current?.stopVolley()}>Stop</button>
               </div>
+            )}
+            {calendar && (
+              <CalendarPanel
+                state={state}
+                onSaveNote={(day, text) => {
+                  const notes = { ...stateRef.current.notes };
+                  if (text.trim()) notes[day] = text;
+                  else delete notes[day];
+                  commit({ ...stateRef.current, notes });
+                }}
+                onPickDay={(day) => {
+                  setCalendar(false);
+                  setViewDay(day);
+                  chat(day === dayKey(new Date()) ? "Logging for today. Walk to a station." : `Now logging for ${dayLabel(day).toLowerCase()}. Walk to a station; you'll be asked to confirm you really did it.`, "hint");
+                }}
+                onClose={() => setCalendar(false)}
+              />
             )}
             {gardenOpen && (
               <GardenPanel
@@ -452,13 +481,23 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
             ))}
           </div>
         </div>
-        <aside className="side">
+        <aside className={"side" + (panelOpen ? "" : " collapsed")}>
           <nav>
             {(["stats", "future", "quests", "habits"] as Tab[]).map((t) => (
-              <button key={t} aria-current={tab === t ? "page" : undefined} onClick={() => setTab(t)}>
+              <button
+                key={t}
+                aria-current={tab === t && panelOpen ? "page" : undefined}
+                onClick={() => {
+                  setTab(t);
+                  setPanelOpen(true);
+                }}
+              >
                 {t[0].toUpperCase() + t.slice(1)}
               </button>
             ))}
+            <button className="collapse" aria-label={panelOpen ? "Hide panel" : "Show panel"} onClick={() => setPanelOpen((v) => !v)}>
+              {panelOpen ? "▾" : "▴"}
+            </button>
           </nav>
           <div className="pane">
             {tab === "stats" && <StatsPane state={state} c={c} selected={selected} onSelect={(id) => setSelected((cur) => (cur === id ? null : id))} />}

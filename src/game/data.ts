@@ -60,6 +60,8 @@ export interface GameState {
   garden?: Garden;
   /** Best volleyball rally on Pen Gu Island. */
   bestRally?: number;
+  /** A journal note per day (and notes added when confirming a log). */
+  notes?: Record<string, string>;
 }
 
 export interface Garden {

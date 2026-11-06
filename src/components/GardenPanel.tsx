@@ -127,7 +127,7 @@ export function GardenPanel({ state, onSave, onMeditate, onClose }: Props) {
         <div className="gd-sit">
           {meditations.length ? (
             meditations.map((h) => (
-              <button key={h.id} onClick={() => onMeditate(h)}>
+              <button key={h.id} onClick={() => confirm(`Did you really do this today: ${h.name}? XP only counts for things you actually did.`) && onMeditate(h)}>
                 {h.name}
               </button>
             ))
