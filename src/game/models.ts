@@ -102,7 +102,7 @@ export interface Look {
   hair: string;
   boots?: string;
   hairStyle?: HairStyle;
-  hat?: { kind: "brim" | "hood" | "cap" | "scarf"; color: string };
+  hat?: { kind: "brim" | "hood" | "cap" | "scarf" | "crown"; color: string };
   beard?: string;
   robe?: string; // long robe instead of trousers
   apron?: string;
@@ -479,6 +479,9 @@ export function makeCharacter(look: Look = PLAYER_LOOK): CharacterRig {
       head.add(part(new THREE.CylinderGeometry(0.11, 0.14, 0.14, 6), c, 0, 0.18, 0));
     } else if (look.hat.kind === "hood") {
       head.add(part(new THREE.SphereGeometry(0.176, 8, 4, Math.PI * 0.85, Math.PI * 1.3) /* opening faces +z (the face) */.scale(1, 1.1, 1.05), c, 0, 0.01, -0.01));
+    } else if (look.hat.kind === "crown") {
+      head.add(crownMesh(c, 1));
+      head.children[head.children.length - 1].position.set(0, 0.11, -0.01);
     } else if (look.hat.kind === "cap") {
       head.add(part(new THREE.SphereGeometry(0.157, 6, 2, 0, Math.PI * 2, 0, Math.PI * 0.45), c, 0, 0.03, 0));
       head.add(part(new THREE.CylinderGeometry(0.1, 0.1, 0.015, 6, 1, false, -Math.PI / 2, Math.PI), c, 0, 0.05, 0.11));
@@ -1526,5 +1529,72 @@ export function makeBeachTV(screen: THREE.Texture): THREE.Group {
   g.add(scr);
   g.add(cyl(0.012, 0.012, 0.35, 4, "#9aa0a6", 0.25, 1.33, -0.12)).children.at(-1)!.rotation.z = -0.5;
   g.add(cyl(0.012, 0.012, 0.35, 4, "#9aa0a6", -0.25, 1.33, -0.12)).children.at(-1)!.rotation.z = 0.5;
+  return g;
+}
+
+// ---------------- the Glacier Court (secret) ----------------
+/** A small royal crown: a gold band, five points tipped with pearls, an ice-blue gem. */
+export function crownMesh(gold: string, scale: number): THREE.Group {
+  const g = new THREE.Group();
+  g.add(part(new THREE.CylinderGeometry(0.12, 0.125, 0.06, 12, 1, true), gold));
+  (g.children[0] as THREE.Mesh).material = new THREE.MeshLambertMaterial({ color: gold, side: THREE.DoubleSide, emissive: "#3a2a00" });
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const pt = part(new THREE.ConeGeometry(0.03, 0.08, 4), gold, Math.sin(a) * 0.118, 0.07, Math.cos(a) * 0.118);
+    g.add(pt);
+    g.add(part(new THREE.SphereGeometry(0.014, 5, 4), "#f4f0e6", Math.sin(a) * 0.118, 0.115, Math.cos(a) * 0.118));
+  }
+  const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.028), new THREE.MeshLambertMaterial({ color: "#7ad8ff", emissive: "#1a6a9a" }));
+  gem.position.set(0, 0.0, 0.126);
+  gem.scale.z = 0.5;
+  g.add(gem);
+  g.scale.setScalar(scale);
+  return g;
+}
+
+/** A penguin (courtiers are small; the King is big, robed and crowned). */
+export function makePenguin(scale = 1, king = false): THREE.Group {
+  const g = new THREE.Group();
+  const body = new THREE.Group();
+  g.add(body);
+  body.add(part(new THREE.SphereGeometry(0.3, 10, 8).scale(1, 1.45, 0.9), "#1c2230", 0, 0.45, 0));
+  body.add(part(new THREE.SphereGeometry(0.24, 10, 8).scale(0.95, 1.35, 0.6), "#f2f0ea", 0, 0.42, 0.15));
+  body.add(part(new THREE.SphereGeometry(0.21, 10, 8), "#1c2230", 0, 0.95, 0));
+  body.add(part(new THREE.SphereGeometry(0.15, 8, 6).scale(1, 0.9, 0.6), "#f2f0ea", 0, 0.92, 0.12));
+  body.add(part(new THREE.SphereGeometry(0.09, 6, 4).scale(1.2, 0.6, 0.5), "#f0c040", 0, 0.82, 0.1)); // golden throat patch
+  for (const x of [-0.07, 0.07]) {
+    body.add(part(new THREE.SphereGeometry(0.03, 6, 4), "#f4f0e6", x, 0.99, 0.17));
+    body.add(part(new THREE.SphereGeometry(0.016, 5, 3), "#0e0a08", x, 0.99, 0.195));
+  }
+  const beak = part(new THREE.ConeGeometry(0.05, 0.16, 5).rotateX(Math.PI / 2), "#e0802a", 0, 0.93, 0.25);
+  body.add(beak);
+  const flipL = part(new THREE.SphereGeometry(0.08, 6, 4).scale(0.4, 1.9, 0.9), "#1c2230", -0.3, 0.5, 0);
+  const flipR = part(new THREE.SphereGeometry(0.08, 6, 4).scale(0.4, 1.9, 0.9), "#1c2230", 0.3, 0.5, 0);
+  flipL.rotation.z = -0.25;
+  flipR.rotation.z = 0.25;
+  flipL.name = "flipL";
+  flipR.name = "flipR";
+  body.add(flipL, flipR);
+  for (const x of [-0.1, 0.1]) g.add(part(new THREE.SphereGeometry(0.08, 6, 3).scale(1, 0.35, 1.5), "#e0802a", x, 0.03, 0.08));
+  if (king) {
+    // a royal cape, a crown and a sceptre of ice
+    const cape = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.42, 0.85, 12, 1, true, Math.PI * 0.55, Math.PI * 0.9), new THREE.MeshLambertMaterial({ color: "#5a2a8a", side: THREE.DoubleSide }));
+    cape.position.set(0, 0.5, -0.04);
+    body.add(cape);
+    body.add(part(new THREE.TorusGeometry(0.22, 0.05, 5, 12).rotateX(Math.PI / 2), "#f4f0e6", 0, 0.82, 0));
+    const crown = crownMesh("#e8c040", 1.25);
+    crown.position.set(0, 1.18, 0);
+    body.add(crown);
+    const sceptre = new THREE.Group();
+    sceptre.add(part(new THREE.CylinderGeometry(0.02, 0.02, 0.9, 5), "#d4a52a", 0, 0.45, 0));
+    const orb = new THREE.Mesh(new THREE.OctahedronGeometry(0.08), new THREE.MeshLambertMaterial({ color: "#9ae8ff", emissive: "#2a8ac0" }));
+    orb.position.y = 0.95;
+    orb.name = "orb";
+    sceptre.add(orb);
+    sceptre.position.set(0.36, 0.1, 0.12);
+    sceptre.rotation.z = -0.15;
+    body.add(sceptre);
+  }
+  g.scale.setScalar(scale);
   return g;
 }

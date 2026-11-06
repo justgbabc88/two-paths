@@ -105,6 +105,26 @@ export function ShopPanel({ state, c: computed, start, onBuy, onBuyFreeze, onCus
                 );
               })}
             </div>
+            <h4>Secret</h4>
+            <div className="sh-grid">
+              {ITEMS.filter((i) => i.secret).map((it) => {
+                const has = owned.has(it.id);
+                const worn = c.hat === it.id;
+                return has ? (
+                  <div key={it.id} className={"sh-item loot" + (worn ? " worn" : "") + (trial === it.id ? " trying" : "")} style={{ borderColor: "#9ae8ff" }} title={it.blurb} tabIndex={0} onMouseEnter={() => tryOn(it.id)} onFocus={() => tryOn(it.id)} onClick={() => tryOn(it.id)}>
+                    <span className="sw" style={{ background: it.color }} />
+                    <span className="nm">{it.name}</span>
+                    <button onClick={() => set({ hat: worn ? "" : it.id })}>{worn ? "Take off" : "Wear"}</button>
+                  </div>
+                ) : (
+                  <div key={it.id} className="sh-item loot locked" style={{ borderColor: "#9ae8ff" }} title="Can't be bought. Can't be found. Only earned, somewhere nobody goes.">
+                    <span className="sw">?</span>
+                    <span className="nm">???</span>
+                    <small style={{ color: "#9ae8ff" }}>secret</small>
+                  </div>
+                );
+              })}
+            </div>
             <p className="note">Every good habit you log has a chance to drop gold or one of these. Bigger habits drop more often and drop rarer things.</p>
           </div>
         )}
@@ -113,7 +133,7 @@ export function ShopPanel({ state, c: computed, start, onBuy, onBuyFreeze, onCus
             <div key={slot}>
               <h4>{label}</h4>
               <div className="sh-grid">
-                {ITEMS.filter((i) => i.slot === slot && !i.loot).map((it) => {
+                {ITEMS.filter((i) => i.slot === slot && !i.loot && !i.secret).map((it) => {
                   const has = owned.has(it.id);
                   const worn = c[key] === it.id;
                   return (

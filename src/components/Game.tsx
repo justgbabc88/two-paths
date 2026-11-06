@@ -24,6 +24,7 @@ import { isMuted, setMuted, sfx } from "../game/sfx";
 import { FOCUS, focusAt, habitForSession, loadSession, saveSession, type FocusKind, type Session } from "../game/sessions";
 import { FocusPicker, FocusTimer } from "./FocusPanel";
 import { bell } from "../game/meditation";
+import { KingDialog } from "./KingDialog";
 
 type Tab = "stats" | "future" | "quests" | "habits";
 interface Line { id: number; text: string; cls?: string }
@@ -50,6 +51,7 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
   const forkRef = useRef(fork);
   forkRef.current = fork;
   const [indoors, setIndoors] = useState<string | null>(null);
+  const [audience, setAudience] = useState(false);
   const [session, setSession] = useState<Session | null>(loadSession);
   const [picker, setPicker] = useState<{ kind?: FocusKind } | null>(null);
   const wakeRef = useRef<{ release(): Promise<void> } | null>(null);
@@ -153,7 +155,16 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
         setGroundMenu(null);
         setTalking(null);
       },
-      inside: (name) => setIndoors(name),
+      inside: (name) => {
+        setIndoors(name);
+        if (!name) setAudience(false);
+        if (name === "Glacier Court") {
+          const st = stateRef.current;
+          commit({ ...st, secrets: { ...st.secrets, visits: (st.secrets?.visits ?? 0) + 1 } });
+          setTimeout(() => sfx.loot("legendary"), 400);
+        }
+      },
+      audience: () => setAudience(true),
       volley: (v) => {
         setVolley((old) => (old && v && old.rally === v.rally && old.best === v.best && old.window === v.window ? old : v));
         const saved = stateRef.current.bestRally ?? 0;
@@ -570,7 +581,23 @@ export function Game({ userId, onSignOut }: { userId: string | null; onSignOut?:
               />
             )}
             {picker && <FocusPicker start={picker.kind} onStart={startSession} onClose={() => setPicker(null)} />}
-            {indoors && !menu && !session && (
+            {audience && (
+              <KingDialog
+                crowned={!!state.secrets?.crown}
+                onKneel={() => {
+                  const st = stateRef.current;
+                  if (st.secrets?.crown) return;
+                  commit({ ...st, secrets: { ...st.secrets, crown: dayKey(new Date()) }, custom: { ...st.custom, hat: "secret-crown" } });
+                  chat("The Penguin King sets a small crown on your head. The whole court bows. You are now a friend of the Glacier Court.", "lvl");
+                  banner({ kicker: "Secret found", title: "👑 Penguin King's crown", sub: "It can't be bought. It can't be found. Only earned.", color: "#9ae8ff", big: true });
+                  sfx.levelUp();
+                  setTimeout(() => sfx.loot("legendary"), 900);
+                  worldRef.current?.celebrate();
+                }}
+                onClose={() => setAudience(false)}
+              />
+            )}
+            {indoors && !menu && !session && !audience && (
               <button className="leave" onClick={() => worldRef.current?.leaveBuilding()}>
                 ⇦ Leave the {indoors.toLowerCase()}
               </button>

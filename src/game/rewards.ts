@@ -97,6 +97,7 @@ export function lootLog(state: GameState): Drop[] {
 export function ownedIds(state: GameState, loot = lootLog(state)): Set<string> {
   const s = new Set(state.owned ?? []);
   loot.forEach((d) => d.item && ITEM[d.item] && s.add(d.item));
+  if (state.secrets?.crown) s.add("secret-crown");
   return s;
 }
 

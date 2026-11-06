@@ -97,3 +97,52 @@ function penguin(ctx: CanvasRenderingContext2D, x: number, y: number, tilt: numb
   ctx.fillRect(2, -1, 4, 2);
   ctx.restore();
 }
+
+/** The King's signal: static, then a crowned silhouette and a message (once you've earned his attention). */
+export function drawKingSignal(ctx: CanvasRenderingContext2D, w: number, h: number, t: number) {
+  // static
+  const img = ctx.createImageData(w, h);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = Math.random() * 120 + 40;
+    img.data[i] = v * 0.8;
+    img.data[i + 1] = v * 0.95;
+    img.data[i + 2] = v * 1.1;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  // rolling bar
+  const bar = ((t * 40) % (h + 30)) - 30;
+  ctx.fillStyle = "rgba(200,230,255,.18)";
+  ctx.fillRect(0, bar, w, 18);
+  // the silhouette of a crowned penguin
+  const cx = w / 2,
+    cy = h * 0.55,
+    s = h / 120;
+  const flicker = 0.75 + 0.25 * Math.sin(t * 13);
+  ctx.globalAlpha = flicker;
+  ctx.fillStyle = "#0a1020";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + 14 * s, 22 * s, 32 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy - 22 * s, 15 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#e8c040";
+  ctx.beginPath();
+  ctx.moveTo(cx - 14 * s, cy - 34 * s);
+  for (let i = 0; i <= 4; i++) {
+    ctx.lineTo(cx - 14 * s + i * 7 * s, cy - 48 * s);
+    ctx.lineTo(cx - 10.5 * s + i * 7 * s, cy - 38 * s);
+  }
+  ctx.lineTo(cx + 14 * s, cy - 34 * s);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#9ae8ff";
+  ctx.fillRect(cx - 2 * s, cy - 40 * s, 4 * s, 4 * s);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#dff4ff";
+  ctx.font = `bold ${Math.round(9 * s)}px monospace`;
+  ctx.textAlign = "center";
+  const msg = Math.floor(t / 3) % 2 ? "WHERE THE ICE NEVER MELTS" : "COME FIND ME";
+  ctx.fillText(msg, cx, h * 0.92);
+}

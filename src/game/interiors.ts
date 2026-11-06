@@ -2,7 +2,7 @@
 // Local units: 1 = one tile. Floor at y=0, back wall at z=0, open front at z=d
 // (the camera looks in from the front, like a doll's house with the front wall off).
 import * as THREE from "three";
-import { mat, roughen, hash } from "./models";
+import { mat, roughen, hash, makePenguin } from "./models";
 import type { StationId } from "./map";
 
 export interface Room {
@@ -571,4 +571,146 @@ export function disposeRoom(r: Room) {
     const m = o as THREE.Mesh;
     if (m.geometry) m.geometry.dispose();
   });
+}
+
+// ---------------- the Glacier Court of the Penguin King (secret) ----------------
+export function buildGlacier(): Room {
+  const g = new THREE.Group();
+  const w = 12,
+    d = 9;
+  const ice = (c: string, o = 0.92) => new THREE.MeshLambertMaterial({ color: c, emissive: "#16324a", transparent: o < 1, opacity: o, flatShading: true });
+  // floor: polished ice tiles with snow drifts at the edges
+  const floor = new THREE.Group();
+  floor.userData.floor = true;
+  for (let x = 0; x < w; x++)
+    for (let z = 0; z < d; z++) {
+      const t = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.1, 0.98), mat(hash(x, z) > 0.5 ? "#cfe8f4" : "#b8d8ea"));
+      t.position.set(x + 0.5, -0.1, z + 0.5);
+      floor.add(t);
+    }
+  // a royal carpet up to the throne
+  for (let z = 1.6; z < d; z += 1) floor.add(box(1.2, 0.02, 0.98, "#5a2a8a", w / 2, 0, z + 0.5), box(0.9, 0.025, 0.98, "#7a3aaa", w / 2, 0, z + 0.5));
+  g.add(floor);
+  for (let i = 0; i < 14; i++) {
+    const m = new THREE.Mesh(roughen(new THREE.IcosahedronGeometry(0.5 + hash(i, 1) * 0.5, 1), 0.2, i), mat("#f4f8fc"));
+    const side = i % 2 ? 1 : -1;
+    m.position.set(side > 0 ? w - 0.2 + hash(i, 3) * 0.3 : 0.2 - hash(i, 3) * 0.3, 0, 1 + (i / 14) * (d - 1));
+    m.scale.y = 0.5;
+    g.add(m);
+  }
+  // the ice palace wall: great spires of ice behind the throne
+  for (let i = 0; i < 13; i++) {
+    const x = (i / 12) * w;
+    const h = 2.4 + Math.sin(i * 1.7) * 0.6 + (Math.abs(x - w / 2) < 2.5 ? 2.2 - Math.abs(x - w / 2) * 0.6 : 0);
+    const sp = new THREE.Mesh(new THREE.ConeGeometry(0.55 + hash(i, 2) * 0.3, h, 6), ice(i % 2 ? "#a8dcf4" : "#c8ecfc", 0.88));
+    sp.position.set(x, h / 2, -0.3 - hash(i, 5) * 0.4);
+    g.add(sp);
+  }
+  // side walls of ice blocks
+  for (const x of [-0.3, w + 0.3])
+    for (let z = 0; z < d - 1; z += 1.2) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.4 + hash(x, z) * 0.8, 1.1), ice("#bfe4f6", 0.85));
+      b.position.set(x, 0.7, z + 0.5);
+      b.rotation.y = (hash(z, x) - 0.5) * 0.3;
+      g.add(b);
+    }
+  // the throne: a carved block of ice on three steps
+  for (let i = 0; i < 3; i++) g.add(box(3.2 - i * 0.6, 0.18, 1.6 - i * 0.3, i % 2 ? "#d8f0fc" : "#b8e0f4", w / 2, i * 0.18, 1.2));
+  const throne = new THREE.Group();
+  throne.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.6, 0.9), ice("#9ad4f0", 0.95)), {}));
+  throne.children[0].position.y = 0.3;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.8, 0.25), ice("#8acdf0", 0.95));
+  back.position.set(0, 1.1, -0.35);
+  throne.add(back);
+  for (const x of [-0.75, 0, 0.75]) {
+    const c = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.6, 5), ice("#d8f4ff", 0.95));
+    c.position.set(x, 2.25 + (x === 0 ? 0.2 : 0), -0.35);
+    throne.add(c);
+  }
+  throne.position.set(w / 2, 0.54, 1.0);
+  g.add(throne);
+  // the King himself
+  const king = makePenguin(1.9, true);
+  king.position.set(w / 2, 0.86, 1.15);
+  king.userData.spot = true;
+  g.add(king);
+  // courtiers along the carpet, and two guards
+  const court: THREE.Group[] = [];
+  [[3.4, 3.2], [3.0, 4.6], [3.4, 6.0], [8.6, 3.2], [9.0, 4.6], [8.6, 6.0]].forEach(([x, z], i) => {
+    const p = makePenguin(0.55 + hash(i, 4) * 0.12);
+    p.position.set(x, 0, z);
+    p.rotation.y = x < w / 2 ? 0.9 : -0.9;
+    court.push(p);
+    g.add(p);
+  });
+  for (const x of [w / 2 - 2.0, w / 2 + 2.0]) {
+    const gd = makePenguin(0.8);
+    gd.position.set(x, 0, 2.3);
+    const spear = new THREE.Group();
+    spear.add(box(0.04, 1.5, 0.04, "#8a8a9a", 0, 0, 0));
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 4), ice("#d8f4ff"));
+    tip.position.y = 1.6;
+    spear.add(tip);
+    spear.position.set(0.32, 0, 0.1);
+    gd.add(spear);
+    court.push(gd);
+    g.add(gd);
+  }
+  // ice lanterns
+  [[1.5, 1.5], [w - 1.5, 1.5], [1.5, d - 1.5], [w - 1.5, d - 1.5]].forEach(([x, z]) => {
+    g.add(box(0.3, 0.9, 0.3, "#b8e0f4", x, 0, z));
+    g.add(ball(0.16, "#9af0ff", x, 1.05, z, { emissive: "#4ac0e0" }));
+  });
+  // the aurora: soft ribbons of light high above the palace
+  const aurora: THREE.Mesh[] = [];
+  ["#5affb0", "#a07aff", "#5ad0ff"].forEach((c, i) => {
+    const geo = new THREE.PlaneGeometry(16, 2.2, 24, 1);
+    const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }));
+    m.position.set(w / 2, 6.2 + i * 0.9, -3 - i);
+    m.rotation.x = 0.35;
+    m.userData.base = (geo.attributes.position as THREE.BufferAttribute).array.slice(0);
+    aurora.push(m);
+    g.add(m);
+  });
+  // falling snow
+  const N = 260;
+  const flakes = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) flakes.set([hash(i, 1) * (w + 4) - 2, hash(i, 2) * 7, hash(i, 3) * (d + 2) - 1], i * 3);
+  const snowGeo = new THREE.BufferGeometry();
+  snowGeo.setAttribute("position", new THREE.BufferAttribute(flakes, 3));
+  const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: "#ffffff", size: 0.07 }));
+  g.add(snow);
+  // the way back: two ice posts where the ferry waits in the fog
+  const door = grp(box(0.2, 0.6, 0.2, "#d8f4ff", -0.8, 0, 0), box(0.2, 0.6, 0.2, "#d8f4ff", 0.8, 0, 0), box(1.4, 0.03, 0.7, "#f4f8fc", 0, 0, -0.35));
+  door.position.set(w / 2, 0, d);
+  door.userData.door = true;
+  g.add(door);
+  const cold = new THREE.PointLight("#bfe8ff", 14, 16, 1.2);
+  cold.position.set(w / 2, 4, 3.5);
+  g.add(cold);
+  const kingLight = new THREE.PointLight("#ffe6a0", 5, 5, 1.5);
+  kingLight.position.set(w / 2, 2.6, 2.4);
+  g.add(kingLight);
+  const update = (t: number) => {
+    aurora.forEach((m, i) => {
+      const pos = m.geometry.attributes.position as THREE.BufferAttribute;
+      const b = m.userData.base as Float32Array;
+      for (let k = 0; k < pos.count; k++) pos.setY(k, b[k * 3 + 1] + Math.sin(b[k * 3] * 0.45 + t * 0.6 + i) * 0.6);
+      pos.needsUpdate = true;
+      (m.material as THREE.MeshBasicMaterial).opacity = 0.2 + 0.1 * Math.sin(t * 0.8 + i * 2);
+    });
+    const p = snow.geometry.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < N; i++) {
+      let y = p.getY(i) - 0.012;
+      if (y < 0) y = 7;
+      p.setY(i, y);
+      p.setX(i, p.getX(i) + Math.sin(t + i) * 0.002);
+    }
+    p.needsUpdate = true;
+    court.forEach((c, i) => (c.children[0].rotation.z = Math.sin(t * 2 + i) * 0.06));
+    king.children[0].rotation.z = Math.sin(t * 0.9) * 0.03;
+    const orb = king.getObjectByName("orb");
+    if (orb) orb.rotation.y = t;
+  };
+  return { group: g, name: "Glacier Court", w, d, spot: { x: w / 2, z: 3.4, face: Math.PI, label: "Approach the King" }, door: { x: w / 2, z: d }, update };
 }

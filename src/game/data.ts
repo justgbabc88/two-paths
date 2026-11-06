@@ -66,6 +66,8 @@ export interface GameState {
   freezes?: { bought: number; used: string[] };
   /** Highest level milestone (every 5 levels) paid out, per skill. */
   milestones?: Partial<Record<SkillId, number>>;
+  /** Secrets you've uncovered (dates). */
+  secrets?: { summoned?: string; crown?: string; visits?: number };
 }
 
 export interface Garden {

@@ -33,12 +33,14 @@ export interface ShopItem {
   slot: "top" | "hat" | "cape" | "accessory" | "pet";
   price: number;
   color?: string;
-  hat?: "brim" | "hood" | "cap" | "scarf";
+  hat?: "brim" | "hood" | "cap" | "scarf" | "crown";
   accessory?: "satchel" | "staff";
   pet?: "dog" | "cat";
   circlet?: boolean;
   /** Loot-only: can't be bought, only found. */
   loot?: Rarity;
+  /** Secret: can't be bought or found, only earned somewhere hidden. */
+  secret?: boolean;
   blurb: string;
 }
 
@@ -72,6 +74,8 @@ export const ITEMS: ShopItem[] = [
   { id: "loot-aurora", name: "Aurora tunic", slot: "top", price: 0, loot: "legendary", color: "#2aa8a0", blurb: "Shifts colour like northern lights." },
   { id: "loot-starlit", name: "Starlit cape", slot: "cape", price: 0, loot: "legendary", color: "#3a2a78", blurb: "Woven on the longest night of the year." },
   { id: "loot-crown", name: "Laurel crown", slot: "hat", price: 0, loot: "legendary", circlet: true, color: "#d4a52a", blurb: "Given only to those who keep showing up." },
+  // ---- secret ----
+  { id: "secret-crown", name: "Penguin King's crown", slot: "hat", price: 0, secret: true, hat: "crown", color: "#e8c040", blurb: "Given by the King of the Glacier Court to the one who found him." },
 ];
 export const ITEM = Object.fromEntries(ITEMS.map((i) => [i.id, i])) as Record<string, ShopItem>;
 

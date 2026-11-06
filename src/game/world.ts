@@ -9,11 +9,11 @@ import { TIER_NAMES, type Mood, type WorldLook } from "./appearance";
 import { CHIMNEYS, buildStation, hash, makeBeachTV, makeTropicalPlant, makeBall, makeFerry, makeGuardianStatue, makeLounger, makePalm, makeUmbrella, makeVolleyNet, makeGardenFrame, makeGardenStone, makePet, makeShop, type PetRig, makeBoat, makeBridge, makeCharacter, makeCloud, makeFork, makeLandmark, mat, natureGeo, surroundGeo, type CharacterRig } from "./models";
 import { WANDERERS, type Wanderer } from "./wanderers";
 import { DEFAULT_GARDEN, drawGarden, leavesFor } from "./garden";
-import { drawSurfShow } from "./surftv";
+import { drawKingSignal, drawSurfShow } from "./surftv";
 import type { Garden } from "./data";
 import { ACTION, actionFor, type ActionId } from "./actions";
 import type { PropId } from "./models";
-import { buildInterior, disposeRoom, hasInterior, type Room } from "./interiors";
+import { buildGlacier, buildInterior, disposeRoom, hasInterior, type Room } from "./interiors";
 
 /** Interiors are built far from the map, beyond the camera's far plane from anywhere outside. */
 const ROOM_O = { x: 600, z: 600 };
@@ -46,6 +46,8 @@ export interface WorldCallbacks {
   volley(v: { rally: number; best: number; window: boolean } | null): void;
   /** Entered (room name) or left (null) a building. */
   inside?(name: string | null): void;
+  /** Reached the Penguin King in the Glacier Court. */
+  audience?(): void;
 }
 
 interface Npc {
@@ -340,8 +342,10 @@ export class World {
   private fx: { text: string; t: number; dx: number }[] = [];
   private questGivers = new Set<string>();
   private hover: { x: number; y: number } | null = null;
-  private inside: { s: Station; room: Room; x: number; z: number; path: [number, number] | null; arrive: null | (() => void); face: number } | null = null;
-  private fade: { t: number; mid: (() => void) | null } | null = null;
+  private inside: { s: Station | null; room: Room; x: number; z: number; path: [number, number] | null; arrive: null | (() => void); face: number } | null = null;
+  private fade: { t: number; mid: (() => void) | null; half?: number } | null = null;
+  private tvTaps: number[] = [];
+  private kingSignalUntil = 0;
   private savedCam: { yaw: number; pitch: number; dist: number } | null = null;
   private pointers = new Map<number, { x: number; y: number }>();
   private drag: { id: number; sx: number; sy: number; lx: number; ly: number; moved: boolean } | null = null;
@@ -648,6 +652,14 @@ export class World {
     this.hemi.intensity = m === "slide" ? 1.0 : m === "keep" ? 1.9 : 1.6;
     this.sun.color.set(m === "keep" ? "#ffe2a8" : m === "slide" ? "#b8bcc4" : "#fff0d2");
     this.sun.intensity = m === "slide" ? 0.9 : m === "keep" ? 2.4 : 2.0;
+    if (this.inside) {
+      // indoors (or in the Glacier Court) the sky stays dark whatever happens outside
+      const bg = this.inside.s ? "#120c08" : "#0a1430";
+      (this.scene.background as THREE.Color).set(bg);
+      f.color.set(bg);
+      f.near = 40;
+      f.far = 90;
+    }
   }
 
   // ---------------- helpers ----------------
@@ -1009,7 +1021,8 @@ export class World {
     }
     if (this.fade) {
       const t = this.fade.t;
-      ctx.fillStyle = `rgba(10,7,4,${t < 0.28 ? t / 0.28 : Math.max(0, 1 - (t - 0.28) / 0.34)})`;
+      const h = this.fade.half ?? 0.28;
+      ctx.fillStyle = this.fade.half ? `rgba(220,232,240,${t < h ? t / h : Math.max(0, 1 - (t - h) / (h * 1.2))})` : `rgba(10,7,4,${t < h ? t / h : Math.max(0, 1 - (t - h) / (h * 1.2))})`;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
     void now;
@@ -1105,12 +1118,13 @@ export class World {
     if (I) I.room.update(now / 1000);
     if (this.fade) {
       this.fade.t += realDt;
-      if (this.fade.t >= 0.28 && this.fade.mid) {
+      const half = this.fade.half ?? 0.28;
+      if (this.fade.t >= half && this.fade.mid) {
         const m = this.fade.mid;
         this.fade.mid = null;
         m();
       }
-      if (this.fade.t >= 0.62) this.fade = null;
+      if (this.fade.t >= half * 2.2) this.fade = null;
     }
     if (P.action) {
       P.actionT += realDt;
@@ -1205,7 +1219,8 @@ export class World {
       pt.rig.head.rotation.y = moving ? 0 : Math.sin(now / 1500) * 0.4;
     }
     if ((this.tvFrame = (this.tvFrame + 1) % 2) === 0 && Math.hypot(this.cam.tx - BEACH_TV.x, this.cam.tz - BEACH_TV.y) < 30) {
-      drawSurfShow(this.tvCanvas.getContext("2d")!, this.tvCanvas.width, this.tvCanvas.height, now / 1000);
+      if (performance.now() < this.kingSignalUntil) drawKingSignal(this.tvCanvas.getContext("2d")!, this.tvCanvas.width, this.tvCanvas.height, now / 1000);
+      else drawSurfShow(this.tvCanvas.getContext("2d")!, this.tvCanvas.width, this.tvCanvas.height, now / 1000);
       this.tvTex.needsUpdate = true;
     }
     this.spinners.forEach((o) => (o.rotation.y += dt * 1.2));
@@ -1480,12 +1495,13 @@ export class World {
     return onIsland(x, y) !== onIsland(this.P.x, this.P.y);
   }
   /** Walk to the ferry on this side, sail across, then do `next`. */
-  private viaFerry(next: () => void) {
+  private viaFerry(next: () => void, board = false) {
     const P = this.P;
     const side = onIsland(P.x, P.y) ? "island" : "mainland";
     if (this.ferrySide !== side) this.parkFerry(side); // the ferry comes back for you
     const dock = FERRY[side];
     const go = () => {
+      if (board) return this.boardFerry();
       this.afterSail = next;
       this.startSail();
     };
@@ -1561,6 +1577,11 @@ export class World {
     this.P.face = Math.PI;
     this.vb = { ...this.vb, active: true, toYou: true, t: -0.8, rally: 0, hit: 0, dropT: 0, dur: 1.1, arc: 1.9 };
     this.cb.chat("Kiki tosses you a grin and serves. Click, tap or press space as the ball reaches you.", "hint");
+    if (Math.random() < 0.2)
+      this.cb.chat(
+        ['Kiki: "That TV? Older than me. Give it a good few smacks when it acts up."', 'Kiki: "Grandpa swears the ferry knows a way through the fog. Only when the TV goes funny, he says."', 'Kiki: "Some nights the static on that TV looks like it\'s wearing a crown."'][Math.floor(Math.random() * 3)],
+        "hint",
+      );
     this.cb.volley({ rally: 0, best: this.vb.best, window: false });
   }
   /** Try to hit the ball (click, tap, space or the Hit button). */
@@ -1846,9 +1867,20 @@ export class World {
       return;
     }
     if (p.tv) {
+      // three quick taps on the set flip it to a channel that isn't in any listing
+      const t = performance.now();
+      this.tvTaps = [...this.tvTaps.filter((x) => t - x < 1600), t];
+      if (this.tvTaps.length >= 3 && t > this.kingSignalUntil) {
+        this.tvTaps = [];
+        this.kingSignalUntil = t + 90000;
+        this.cb.chat("You smack the side of the TV. The picture rolls into static... and something with a crown flickers on the screen.", "lvl");
+        this.cb.chat('A crackling voice: "Come find me, where the ice never melts."', "xp");
+        return;
+      }
+      if (this.tvTaps.length > 1) return;
       // settle onto the middle lounger and watch
       p.lounger = 1;
-      this.cb.chat("Penguins Surfing is on. Again. It's always on. You settle in.", "hint");
+      this.cb.chat(t < this.kingSignalUntil ? "The screen hisses with static. A crowned shape flickers in and out." : "Penguins Surfing is on. Again. It's always on. You settle in.", "hint");
     }
     if (p.ferry || p.court || p.lounger !== undefined) {
       if (p.point) this.markers.push({ x: p.point.x, z: p.point.z, t: 0, red: true });
@@ -1859,7 +1891,7 @@ export class World {
       P.pendingFork = false;
       P.pendingShop = false;
       P.pendingGarden = false;
-      const arrive = () => (p.ferry ? this.startSail() : p.court ? this.startVolley() : this.lieDown(p.lounger!));
+      const arrive = () => (p.ferry ? this.boardFerry() : p.court ? this.startVolley() : this.lieDown(p.lounger!));
       if (P.x === dest.x && P.y === dest.y) {
         arrive();
         return;
@@ -1881,7 +1913,7 @@ export class World {
         }
         if (p.ferry) {
           // the ferry is moored on the other side: call it over
-          this.viaFerry(() => {});
+          this.viaFerry(() => {}, true);
           return;
         }
         this.cb.chat("You can't reach that from here.", "sys");
@@ -2005,7 +2037,7 @@ export class World {
     P.pendingFocus = action;
     this.lounging = null;
     if (this.inside) {
-      if (this.inside.s.id === stationId) {
+      if (this.inside.s?.id === stationId) {
         const I = this.inside;
         I.path = [I.room.spot.x, I.room.spot.z];
         I.arrive = () => this.atSpot();
@@ -2025,6 +2057,46 @@ export class World {
   }
   get focusing() {
     return !!(this.P.focus || this.P.pendingFocus);
+  }
+
+  // ---------------- the Glacier Court (secret) ----------------
+  /** On the island dock with the King's signal still on the TV, the ferry goes somewhere else. */
+  private boardFerry() {
+    const P = this.P;
+    if (performance.now() < this.kingSignalUntil && this.ferrySide === "island" && (onIsland(P.x, P.y) || P.y >= FERRY.island.y - 1)) this.sailToFog();
+    else this.startSail();
+  }
+  private sailToFog() {
+    this.kingSignalUntil = 0;
+    this.lounging = null;
+    this.cb.chat("You climb aboard. The ferry turns away from the mainland, out past the reef... into a wall of white fog.", "lvl");
+    this.fade = {
+      t: 0,
+      half: 1.3,
+      mid: () => {
+        const room = buildGlacier();
+        room.group.position.set(ROOM_O.x, 0, ROOM_O.z);
+        this.scene.add(room.group);
+        this.inside = { s: null, room, x: room.door.x, z: room.door.z - 0.3, path: [room.spot.x, room.spot.z + 0.6], arrive: null, face: Math.PI };
+        this.savedCam = { yaw: this.cam.yaw, pitch: this.cam.pitch, dist: this.cam.dist };
+        this.cam.yaw = 0;
+        this.cam.pitch = 0.5;
+        this.cam.dist = 10;
+        this.cam.tx = ROOM_O.x + room.w / 2;
+        this.cam.tz = ROOM_O.z + room.d / 2;
+        (this.scene.background as THREE.Color).set("#0a1430");
+        const f = this.scene.fog as THREE.Fog;
+        f.color.set("#0a1430");
+        f.near = 40;
+        f.far = 90;
+        if (this.pet) {
+          this.pet.x = ROOM_O.x + room.door.x + 0.5;
+          this.pet.z = ROOM_O.z + room.door.z - 0.1;
+        }
+        this.cb.inside?.(room.name);
+        this.cb.chat("The fog parts. Ice, aurora, and a hall full of penguins who all turn to look at you.", "lvl");
+      },
+    };
   }
 
   // ---------------- buildings you can walk into ----------------
@@ -2082,6 +2154,10 @@ export class World {
       return;
     }
     const p = this.project(ROOM_O.x + I.room.spot.x, 1.5, ROOM_O.z + I.room.spot.z);
+    if (!I.s) {
+      this.cb.audience?.();
+      return;
+    }
     this.cb.openStation(I.s, { x: p.x + 30, y: p.y - 40 });
   }
   /** Step back out through the door (with a fade). */
@@ -2113,6 +2189,7 @@ export class World {
       this.pet.x = P.px + 0.5;
       this.pet.z = P.py + 1.1;
     }
+    if (!I.s) this.cb.chat("The ferry carries you back through the fog. Pen Gu Island, warm and loud, as if nothing happened.", "hint");
     this.cb.inside?.(null);
   }
   private pickInside(vx: number, vy: number): { door?: boolean; spot?: boolean; floor?: THREE.Vector3 } {

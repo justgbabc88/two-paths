@@ -476,3 +476,9 @@ canvas.gl{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:auto}
 .focus-timer.meditate .ft-bar div{background:linear-gradient(90deg,#5a8ab0,#9fd0ff)}
 .focus-timer button{width:100%;font-size:11px;padding:4px}
 .topbtns button:disabled{opacity:.5}
+.dialogue.king{background:linear-gradient(#e4f2fa,#c4dcec);border-color:#1a2a44;box-shadow:inset 0 0 0 2px #7ab0d0,0 4px 0 #000,0 0 30px #9ae8ff66}
+.dialogue.king .dl-head b{font-family:"Silkscreen",monospace;font-size:13px;color:#3a2a6a}
+.dialogue.king .dl-line{font-size:16px;margin:6px 0 8px;color:#1a2232;font-style:italic}
+.dialogue.king .dl-opts{display:flex;gap:8px}
+.dialogue.king button{background:#1a2a44;color:#e4f2fa;border:1px solid #7ab0d0;padding:5px 14px;cursor:pointer;font-size:13px}
+.dialogue.king button.kneel{background:#5a2a8a;border-color:#e8c040;color:#fff3c8;font-family:"Silkscreen",monospace}
