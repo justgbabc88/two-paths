@@ -1565,6 +1565,10 @@ export class World {
   private lieDown(i: number) {
     this.lounging = i;
     this.P.face = 0;
+    // look over your shoulder at the TV
+    this.cam.yaw = Math.PI;
+    this.cam.pitch = Math.min(this.cam.pitch, 0.6);
+    this.cam.dist = Math.min(this.cam.dist, 8);
     this.cb.chat(["You stretch out in the sun. The waves do the rest.", "You lie back and listen to the sea.", "You close your eyes. Nothing needs you right now."][i % 3], "hint");
   }
   // ---- volleyball ----

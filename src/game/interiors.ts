@@ -3,6 +3,7 @@
 // (the camera looks in from the front, like a doll's house with the front wall off).
 import * as THREE from "three";
 import { mat, roughen, hash, makePenguin } from "./models";
+import { makeDrone, makeSentinel, makeShifter, makeWorker, type Bot } from "./robots";
 import type { StationId } from "./map";
 
 export interface Room {
@@ -634,28 +635,33 @@ export function buildGlacier(): Room {
   king.position.set(w / 2, 0.86, 1.15);
   king.userData.spot = true;
   g.add(king);
-  // courtiers along the carpet, and two guards
+  // penguin courtiers along the carpet
   const court: THREE.Group[] = [];
-  [[3.4, 3.2], [3.0, 4.6], [3.4, 6.0], [8.6, 3.2], [9.0, 4.6], [8.6, 6.0]].forEach(([x, z], i) => {
+  [[3.5, 4.2], [3.3, 5.8], [8.5, 4.2], [8.7, 5.8]].forEach(([x, z], i) => {
     const p = makePenguin(0.55 + hash(i, 4) * 0.12);
     p.position.set(x, 0, z);
     p.rotation.y = x < w / 2 ? 0.9 : -0.9;
     court.push(p);
     g.add(p);
   });
-  for (const x of [w / 2 - 2.0, w / 2 + 2.0]) {
-    const gd = makePenguin(0.8);
-    gd.position.set(x, 0, 2.3);
-    const spear = new THREE.Group();
-    spear.add(box(0.04, 1.5, 0.04, "#8a8a9a", 0, 0, 0));
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 4), ice("#d8f4ff"));
-    tip.position.y = 1.6;
-    spear.add(tip);
-    spear.position.set(0.32, 0, 0.1);
-    gd.add(spear);
-    court.push(gd);
-    g.add(gd);
-  }
+  // the Frostwardens: the King's robot crew
+  const bots: Bot[] = [];
+  const addBot = (b: Bot, x?: number, z?: number, ry = 0) => {
+    if (x !== undefined) b.group.position.set(x, 0, z!);
+    b.group.rotation.y = ry;
+    bots.push(b);
+    g.add(b.group);
+  };
+  addBot(makeSentinel(), w / 2 - 2.3, 2.2, 0.25);
+  addBot(makeSentinel(), w / 2 + 2.3, 2.2, -0.25);
+  addBot(makeShifter({ x: 1.9, z0: 2.6, z1: 6.8 }, 0));
+  addBot(makeShifter({ x: w - 1.9, z0: 2.6, z1: 6.8 }, 5.1));
+  addBot(makeWorker(new THREE.Vector3(2.3, 0, 0.8), new THREE.Vector3(3.9, 0, 2.5), 0));
+  addBot(makeWorker(new THREE.Vector3(w - 2.3, 0, 0.8), new THREE.Vector3(w - 3.9, 0, 2.5), 4.5));
+  addBot(makeDrone(new THREE.Vector3(w / 2, 3.4, 4.2), 3.6, 0));
+  addBot(makeDrone(new THREE.Vector3(w / 2, 4.2, 3.0), 2.6, Math.PI));
+  addBot(makeDrone(new THREE.Vector3(w / 2, 5.0, 1.5), 4.4, 1.7));
+  let lastT = -1;
   // ice lanterns
   [[1.5, 1.5], [w - 1.5, 1.5], [1.5, d - 1.5], [w - 1.5, d - 1.5]].forEach(([x, z]) => {
     g.add(box(0.3, 0.9, 0.3, "#b8e0f4", x, 0, z));
@@ -692,6 +698,9 @@ export function buildGlacier(): Room {
   kingLight.position.set(w / 2, 2.6, 2.4);
   g.add(kingLight);
   const update = (t: number) => {
+    const dt = lastT < 0 ? 0 : Math.min(0.1, t - lastT);
+    lastT = t;
+    bots.forEach((b) => b.update(t, dt));
     aurora.forEach((m, i) => {
       const pos = m.geometry.attributes.position as THREE.BufferAttribute;
       const b = m.userData.base as Float32Array;
